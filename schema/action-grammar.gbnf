@@ -1,0 +1,97 @@
+# GBNF grammar mirroring AsciiActionCodec's ASCII command grammar
+# (src/main/java/com/lilbuddybot/ir/AsciiActionCodec.java) exactly. Any string
+# this grammar accepts, AsciiActionCodec.decode() accepts, and vice versa --
+# keep them in sync by hand if either changes.
+#
+# Use: llama.cpp / any GBNF-compatible local inference (e.g. via --grammar-file
+# or the grammar parameter of a local server) to force a fine-tuned or general
+# local model's output to always be a syntactically valid command, eliminating
+# the class of "malformed command" errors entirely at the sampling level.
+#
+# This is the LOCAL-MODEL equivalent of what a cloud provider's JSON-schema /
+# tool-calling mode (Groq, OpenAI-style) gives you against the canonical IR
+# schema directly (schema/action-ir.schema.json) -- for a frozen cloud model,
+# constrain against that JSON Schema instead of this file; this grammar exists
+# specifically for the compact ASCII tier a local model would be prompted or
+# fine-tuned to emit.
+#
+# No implicit whitespace skipping in GBNF -- every space is written explicitly.
+
+root ::= command
+
+command ::= go-cmd | flw-cmd | mine-cmd | plc-cmd | crf-cmd | smt-cmd
+          | eq-cmd | atk-cmd | drp-cmd | use-cmd | say-cmd | stop-cmd
+
+ws ::= " "
+
+go-cmd   ::= "go" ws destination (ws range-flag)?
+flw-cmd  ::= "flw" ws selector (ws dist-flag)?
+mine-cmd ::= "mine" ws blockref (ws mine-flag)*
+plc-cmd  ::= "plc" ws blockref ws position (ws face-flag)?
+crf-cmd  ::= "crf" ws itemref (ws table-flag)?
+smt-cmd  ::= "smt" ws itemref (ws fuel-flag)?
+eq-cmd   ::= "eq" ws itemref ws slot
+atk-cmd  ::= "atk" ws selector (ws until-flag)?
+drp-cmd  ::= "drp" ws itemref (ws all-flag)?
+use-cmd  ::= "use" ws use-target (ws use-flag)*
+say-cmd  ::= "say" ws string (ws to-flag)?
+stop-cmd ::= "stop" (ws why-flag)?
+
+# ---- shared fragments -------------------------------------------------
+
+destination ::= position | selector
+use-target  ::= selector | blockref
+
+mine-flag ::= count-flag | near-flag | radius-flag
+use-flag  ::= with-flag | at-flag
+
+range-flag  ::= "range:" number
+dist-flag   ::= "dist:" number
+count-flag  ::= "n:" integer
+near-flag   ::= "near:" position
+radius-flag ::= "r:" number
+face-flag   ::= "face:" facing
+table-flag  ::= "table:" yn
+fuel-flag   ::= "fuel:" itemref
+until-flag  ::= "until:" ("once" | "dead")
+all-flag    ::= "all:" yn
+with-flag   ::= "with:" itemref
+at-flag     ::= "at:" position
+to-flag     ::= "to:" selector
+why-flag    ::= "why:" flagval
+
+yn     ::= "y" | "n"
+slot   ::= "hand" | "off_hand" | "head" | "chest" | "legs" | "feet"
+facing ::= "up" | "down" | "north" | "south" | "east" | "west"
+
+# position: @x,y,z, optionally @x,y,z~dimension (default overworld). Codec-level
+# representation only -- the execution layer doesn't act on dimension yet.
+position ::= "@" number "," number "," number ("~" idpart)?
+
+# selector: Minecraft's own target-selector syntax, e.g. @e[type=zombie,limit=1,sort=nearest]
+selector       ::= "@" selector-kind selector-args?
+selector-kind  ::= "p" | "a" | "e" | "s" | "r"
+selector-args  ::= "[" kv-eq ("," kv-eq)* "]"
+
+# blockref: id with optional blockstate properties, e.g. oak_log[axis=y]
+blockref       ::= id blockref-props?
+blockref-props ::= "[" kv-eq ("," kv-eq)* "]"
+
+kv-eq ::= flagkey "=" flagval
+
+# itemref: id with optional *count multiplier, e.g. diamond_sword*3
+itemref ::= id ("*" integer)?
+
+# id: optional "namespace:" prefix (defaults to minecraft when absent on decode)
+id     ::= idpart (":" idpart)?
+idpart ::= [a-zA-Z0-9_./-]+
+
+flagkey ::= [a-zA-Z0-9_]+
+flagval ::= [a-zA-Z0-9_./:.-]+
+
+# string: double-quoted, \" and \\ are the only recognized escapes
+string    ::= "\"" str-char* "\""
+str-char  ::= [^"\\] | "\\" ["\\]
+
+integer ::= [0-9]+
+number  ::= "-"? [0-9]+ ("." [0-9]+)?

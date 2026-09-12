@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "ardor",
+  "version": "${version}",
+  "name": "Ardor",
+  "description": "A voice-driven AI Minecraft companion: push-to-talk -> STT -> LLM -> TTS, with an in-house action layer and pathfinder.",
+  "authors": [],
+  "license": "MIT",
+  "environment": "client",
+  "accessWidener": "ardor.accesswidener",
+  "entrypoints": {
+    "client": ["com.ardor.client.ArdorClient"],
+    "modmenu": ["com.ardor.client.ArdorModMenuIntegration"]
+  },
+  "mixins": [
+    "ardor-xaero.mixins.json",
+    "ardor.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "fabric-api": "*",
+    "minecraft": "~26.1",
+    "cloth-config": ">=26.1.0",
+    "modmenu": ">=18.0.0"
+  },
+  "suggests": {
+    "xaeroworldmap": "*"
+  }
+}

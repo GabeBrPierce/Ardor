@@ -1,0 +1,108 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base { archivesName = project.archives_base_name }
+
+repositories {
+	// Baritone has no resolvable Maven/JitPack coordinate for its releases,
+	// so it's pulled in as a flatDir-style raw jar from libs/ (see
+	// dependencies block below) rather than declared here.
+	maven {
+		url "https://chocolateminecraft.com/maven"
+		name "Xaero's Maven"
+	}
+	maven {
+		url "https://maven.shedaniel.me/"
+		name "shedaniel"
+	}
+	maven {
+		url "https://maven.terraformersmc.com/releases/"
+		name "TerraformersMC"
+	}
+}
+
+loom {
+	// Separates client-only code (src/client) from common code (src/main).
+	// Everything currently game-facing (pathfinding, selector resolution,
+	// component summarizing) lives in src/client -- this mod has no
+	// server-side component.
+	splitEnvironmentSourceSets()
+
+	accessWidenerPath = file("src/main/resources/ardor.accesswidener")
+
+	mods {
+		"ardor" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	// MC 26.1.2 ships unobfuscated (Mojang dropped obfuscation starting with
+	// 26.1), so there is no mappings step at all -- no `mappings` line here.
+	// This requires the plugin id above to be 'net.fabricmc.fabric-loom'
+	// (not the legacy bare 'fabric-loom' id, and not
+	// 'net.fabricmc.fabric-loom-remap'): that's the id Loom 1.14+ uses to
+	// mean "unobfuscated target, skip remapping entirely". The old bare id
+	// aliases to remap-capable behavior for backward compat, which is why it
+	// was still trying (and failing) to resolve official Mojang mappings for
+	// a version that never shipped any.
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// Netty is bundled inside Minecraft -- no dependency needed for sockets/HTTP.
+
+	// Baritone v1.18.0 (targets MC 26.1.x, close match to our 26.1.2).
+	// baritone-api-fabric-*.jar is a self-contained shaded jar -- it already
+	// includes the full baritone.api.* package plus the Fabric-platform
+	// implementation, so the separate platform-agnostic baritone-api-*.jar
+	// (also in libs/, kept only for checksum verification) isn't needed on
+	// the classpath. Not a real Maven artifact, so it's a plain files()
+	// dependency rather than modImplementation -- this project also has no
+	// mappings/remapping step (MC 26.1.2 ships unobfuscated), so a raw jar
+	// on the classpath is exactly what's wanted here.
+	implementation files('libs/baritone-api-fabric-1.18.0.jar')
+
+	// Xaero's World Map integration -- genuinely optional at runtime: compileOnly so this mod's jar
+	// neither requires nor bundles Xaero's, and normal users without it installed are completely
+	// unaffected. (Plain compileOnly, not modCompileOnly -- this project's Loom setup has no mod*
+	// configurations at all, same reason Baritone above uses plain implementation files(): MC
+	// 26.1.2 ships unobfuscated so this build skips Loom's remap machinery entirely, and the mod*
+	// configurations only exist to drive that.) The integration code (com.ardor.xaero) is
+	// only ever touched behind a FabricLoader.isModLoaded("xaeroworldmap") check at runtime, so the
+	// classes referenced here never actually get loaded unless the user separately has Xaero's
+	// World Map installed. Real Maven coordinate, confirmed live against
+	// https://chocolateminecraft.com/maven/xaero/map/xaeroworldmap-fabric-26.1.2/ -- 1.46.0 is the
+	// latest published build for this exact Minecraft version as of 2026-09-10.
+	compileOnly "xaero.map:xaeroworldmap-fabric-26.1.2:1.46.0"
+
+	// Settings screen (config/ardor.json) + its Mod Menu entry point. Real Maven coordinates, both
+	// confirmed live against their respective maven repos for MC 26.1.2 as of 2026-09-10 (cloth-config
+	// switched to "<mcversion>.<build>" versioning; modmenu's own version numbering doesn't track MC
+	// version, resolved instead via Modrinth's game_versions filter). Plain `implementation`, not
+	// `modImplementation`, same reasoning as Baritone/Xaero above: this build has no remapping step at
+	// all (MC 26.1.2 ships unobfuscated), so there's nothing for a `mod*` configuration to do here.
+	implementation "me.shedaniel.cloth:cloth-config-fabric:26.1.154"
+	implementation "com.terraformersmc:modmenu:18.0.1"
+}
+
+processResources {
+	inputs.property "version", project.version
+	filesMatching("fabric.mod.json") { expand "version": project.version }
+}
+
+def targetJava = JavaVersion.toVersion(project.java_version as int)
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = project.java_version as int
+}
+java {
+	withSourcesJar()
+	sourceCompatibility = targetJava
+	targetCompatibility = targetJava
+}

@@ -1,0 +1,28 @@
+.gradle/
+build/
+.gradle-dist/
+run/
+*.log
+
+training/out/
+training/data/
+training/out_lora*/
+training/lib/
+training/llama_server/
+training/gguf_final/
+unsloth_compiled_cache/
+
+# Stray extracted-jar/decompile artifacts at repo root, not part of the Gradle build
+# (Loom's real source roots are src/main and src/client).
+/net/
+/messageapi/
+/screenapi/
+
+# Unrelated scratch research, not part of the mod.
+/SEED_CRACKING_PUZZLE.md
+
+# Local Claude Code state, not project config.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+logs/

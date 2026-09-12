@@ -1,0 +1,19 @@
+accessWidener v2 official
+
+# ClientInput.moveVector is protected -- it's the field that actually drives
+# LocalPlayer movement (via applyInput() -> xxa/zza), not keyPresses. Widened
+# so PathExecutor can set it directly while driving the bot programmatically.
+# See PathExecutor.java's Javadoc for the full story (confirmed via javap
+# disassembly of LocalPlayer.applyInput()/aiStep(), KeyboardInput.tick()).
+accessible field net/minecraft/client/player/ClientInput moveVector Lnet/minecraft/world/phys/Vec2;
+
+# pickBlockOrEntity is private -- PickWheelKey calls it directly on a tap (PickBlockMixin
+# unconditionally swallows vanilla's own automatic call inside handleKeybinds(), so PickWheelKey
+# is the sole place that ever performs pick-block now; see its class doc).
+accessible method net/minecraft/client/Minecraft pickBlockOrEntity ()V
+
+# closeContainer is protected -- RealCraftingController needs to properly close a real crafting
+# table's menu after taking a crafted result from it (sends the real close packet + resets
+# player.containerMenu to the default inventory menu), the same thing a Screen's own onClose does
+# when a player backs out of a container GUI normally.
+accessible method net/minecraft/world/entity/player/Player closeContainer ()V

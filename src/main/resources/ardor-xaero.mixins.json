@@ -1,0 +1,11 @@
+{
+  "required": false,
+  "package": "com.ardor.xaero.mixin",
+  "client": [
+    "GoHereMixin",
+    "RegisterHighlighterMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ardor.local/schema/action-ir.json",
+  "title": "Ardor Action IR",
+  "description": "Canonical intermediate representation for bot actions. All three surface tiers (English log renderer, frozen-LLM ASCII grammar, fine-tuned-model native tokens) are codecs around this schema, not translators to each other. Field values reuse Minecraft's own conventions directly: namespaced registry IDs (minecraft:diamond_ore), target selectors (@e[type=...]), and blockstate/data-component property maps.",
+
+  "$defs": {
+
+    "namespacedId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$",
+      "description": "A Minecraft/Fabric registry key, e.g. minecraft:diamond_ore, minecraft:zombie. Maps 1:1 onto Registries.BLOCK / Registries.ITEM / Registries.ENTITY_TYPE — no translation layer needed once parsed."
+    },
+
+    "vec3": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "dimension": {
+          "$ref": "#/$defs/namespacedId",
+          "default": "minecraft:overworld"
+        }
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+
+    "blockRef": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Blockstate property map, e.g. {\"axis\":\"y\"} for minecraft:oak_log[axis=y]. Omit to match any state of the block."
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+
+    "itemStack": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "count": { "type": "integer", "minimum": 1, "default": 1 },
+        "components": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "1.20.5+ data component overrides, e.g. minecraft:enchantments. Optional."
+        },
+        "componentSummary": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Human-readable lines resolved live by the mod at record-time (e.g. \"Sharpness III\", \"unbreakable\"), derived from Minecraft's own translation keys rather than reimplemented English. Optional -- absence just means no live summary was captured for this entry, and renderers should fall back to noting that components exist without detailing them."
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+
+    "entityTarget": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^@[pears](\\[[^\\]]*\\])?$",
+          "description": "A Minecraft target selector: @p, @a, @e, @s, @r, with optional [type=,distance=,limit=,sort=...] arguments. Reused verbatim rather than inventing a parallel entity-query schema."
+        },
+        {
+          "type": "string",
+          "format": "uuid",
+          "description": "A specific in-world entity instance, for referring back to 'that zombie' across multiple actions."
+        }
+      ]
+    },
+
+    "action": {
+      "oneOf": [
+        { "$ref": "#/$defs/actions/goto" },
+        { "$ref": "#/$defs/actions/follow" },
+        { "$ref": "#/$defs/actions/mine" },
+        { "$ref": "#/$defs/actions/place" },
+        { "$ref": "#/$defs/actions/craft" },
+        { "$ref": "#/$defs/actions/smelt" },
+        { "$ref": "#/$defs/actions/equip" },
+        { "$ref": "#/$defs/actions/attack" },
+        { "$ref": "#/$defs/actions/drop" },
+        { "$ref": "#/$defs/actions/use" },
+        { "$ref": "#/$defs/actions/chat" },
+        { "$ref": "#/$defs/actions/stop" }
+      ]
+    },
+
+    "actions": {
+      "goto": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "goto" },
+          "destination": {
+            "oneOf": [ { "$ref": "#/$defs/vec3" }, { "$ref": "#/$defs/entityTarget" } ]
+          },
+          "range": { "type": "number", "default": 1, "description": "How close counts as arrived, in blocks." }
+        },
+        "required": ["action", "destination"],
+        "additionalProperties": false
+      },
+
+      "follow": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "follow" },
+          "target": { "$ref": "#/$defs/entityTarget" },
+          "distance": { "type": "number", "default": 3 }
+        },
+        "required": ["action", "target"],
+        "additionalProperties": false
+      },
+
+      "mine": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "mine" },
+          "block": { "$ref": "#/$defs/blockRef" },
+          "count": { "type": "integer", "default": 1 },
+          "searchOrigin": { "$ref": "#/$defs/vec3" },
+          "searchRadius": { "type": "number", "default": 32 }
+        },
+        "required": ["action", "block"],
+        "additionalProperties": false
+      },
+
+      "place": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "place" },
+          "block": { "$ref": "#/$defs/blockRef" },
+          "position": { "$ref": "#/$defs/vec3" },
+          "facing": {
+            "type": "string",
+            "enum": ["up", "down", "north", "south", "east", "west"]
+          }
+        },
+        "required": ["action", "block", "position"],
+        "additionalProperties": false
+      },
+
+      "craft": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "craft" },
+          "item": { "$ref": "#/$defs/itemStack" },
+          "useCraftingTable": { "type": "boolean", "default": false }
+        },
+        "required": ["action", "item"],
+        "additionalProperties": false
+      },
+
+      "smelt": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "smelt" },
+          "input": { "$ref": "#/$defs/itemStack" },
+          "fuel": { "$ref": "#/$defs/itemStack" }
+        },
+        "required": ["action", "input"],
+        "additionalProperties": false
+      },
+
+      "equip": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "equip" },
+          "item": { "$ref": "#/$defs/itemStack" },
+          "slot": {
+            "type": "string",
+            "enum": ["hand", "off_hand", "head", "chest", "legs", "feet"]
+          }
+        },
+        "required": ["action", "item", "slot"],
+        "additionalProperties": false
+      },
+
+      "attack": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "attack" },
+          "target": { "$ref": "#/$defs/entityTarget" },
+          "until": { "type": "string", "enum": ["once", "dead"], "default": "once" }
+        },
+        "required": ["action", "target"],
+        "additionalProperties": false
+      },
+
+      "drop": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "drop" },
+          "item": { "$ref": "#/$defs/itemStack" },
+          "all": { "type": "boolean", "default": false }
+        },
+        "required": ["action", "item"],
+        "additionalProperties": false
+      },
+
+      "use": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "use" },
+          "target": {
+            "oneOf": [
+              { "$ref": "#/$defs/blockRef" },
+              { "$ref": "#/$defs/entityTarget" }
+            ]
+          },
+          "position": { "$ref": "#/$defs/vec3" },
+          "heldItem": { "$ref": "#/$defs/itemStack" }
+        },
+        "required": ["action", "target"],
+        "additionalProperties": false
+      },
+
+      "chat": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "chat" },
+          "message": { "type": "string", "maxLength": 256 },
+          "whisperTo": { "$ref": "#/$defs/entityTarget" }
+        },
+        "required": ["action", "message"],
+        "additionalProperties": false
+      },
+
+      "stop": {
+        "type": "object",
+        "properties": {
+          "action": { "const": "stop" },
+          "reason": { "type": "string" }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    }
+  },
+
+  "$ref": "#/$defs/action"
+}
