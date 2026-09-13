@@ -83,14 +83,14 @@ public final class TaskPlanner {
     public static CompletableFuture<List<PlannedTask>> plan(String goal) {
         ArdorConfig config = ArdorConfig.get();
         ChatCompletionClient client = new ChatCompletionClient(
-                config.llmBaseUrl, config.llmApiKey, config.llmModel, config.llmReasoningEffort);
+                config.effectiveBaseUrl(), config.llmApiKey, config.effectiveModel(), config.llmReasoningEffort);
         return client.complete(PLANNING_SYSTEM_PROMPT, goal).thenApply(TaskPlanner::parse);
     }
 
     public static CompletableFuture<OrchestrationResult> planNext(String goal, String progressLog) {
         ArdorConfig config = ArdorConfig.get();
         ChatCompletionClient client = new ChatCompletionClient(
-                config.llmBaseUrl, config.llmApiKey, config.llmModel, config.llmReasoningEffort);
+                config.effectiveBaseUrl(), config.llmApiKey, config.effectiveModel(), config.llmReasoningEffort);
         String userMessage = "Original goal: " + goal + "\n\nProgress so far:\n"
                 + (progressLog.isBlank() ? "(nothing yet)" : progressLog);
         return client.complete(ORCHESTRATION_SYSTEM_PROMPT, userMessage).thenApply(TaskPlanner::parseOrchestration);

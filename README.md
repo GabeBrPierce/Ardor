@@ -44,23 +44,32 @@ Launch Minecraft, and you're in. Default keybinds:
 ## Setting up voice control
 
 Ardor's voice pipeline needs an LLM to turn speech into actions. `config/ardor.json` (created on
-first run) controls where that LLM comes from:
+first run, or the in-game Mod Menu -> Ardor Settings -> LLM screen) controls where that LLM comes
+from:
 
 ```json
 {
-  "llmBaseUrl": "http://127.0.0.1:8081/v1",
+  "llmProvider": "LOCAL",
+  "llmBaseUrl": "",
   "llmApiKey": "",
-  "llmModel": "qwen2.5-3b-instruct",
+  "llmModel": "",
   "llmMode": "single_command"
 }
 ```
 
-- **Local model (default):** point `llmServerExecutable` / `llmServerModelPath` at your own
-  `llama-server.exe` and GGUF model — the shipped defaults are the original dev's local paths and
-  won't exist on your machine. See [`training/README.md`](training/README.md) for how that model
-  was built.
-- **Cloud model:** set `llmBaseUrl` to any OpenAI-compatible endpoint (e.g. Groq), set `llmApiKey`,
-  and switch `llmMode` to `"say_do"`.
+`llmProvider` picks a preset — `LOCAL`, `GROQ`, `OPENAI`, `OPENROUTER`, `TOGETHER`, or `CUSTOM`.
+`llmBaseUrl`/`llmModel` fall back to that preset's defaults when left blank, so you only need to
+fill them in to override the preset. `llmApiKey` is required for every provider except `LOCAL`.
+
+- **Cloud model (easiest):** set `llmProvider` to `GROQ`, `OPENAI`, `OPENROUTER`, or `TOGETHER`, and
+  set `llmApiKey` to a key from that provider. Switch `llmMode` to `"say_do"` for a frozen
+  general-purpose model.
+- **Any other OpenAI-compatible API:** set `llmProvider` to `CUSTOM` and fill in `llmBaseUrl` +
+  `llmModel` yourself.
+- **Local model:** set `llmProvider` to `LOCAL`, point `llmServerExecutable` / `llmServerModelPath`
+  at your own `llama-server.exe` and GGUF model, and turn on `llmAutoStart` if you want Ardor to
+  launch it for you. See [`training/README.md`](training/README.md) for how that model was built.
+  All three are blank/off by default — there's no portable default local model to ship with the mod.
 
 No LLM configured yet? The mod still loads fine — the voice pipeline just no-ops until you set one
 up. The command wheel doesn't need an LLM at all.

@@ -17,7 +17,6 @@ import java.util.UUID;
 /** Orchestrates push-to-talk -> STT -> LLM -> ResponseHandler (action dispatch, TTS). */
 public final class VoicePipeline {
 
-    private static final String DEFAULT_GROQ_URL = "https://api.groq.com/openai/v1";
     private static final double MIN_RECORDING_SECONDS = 0.3; // shorter than this is a stray tap, not speech
 
     private final AudioRecorder recorder = new AudioRecorder();
@@ -50,11 +49,11 @@ public final class VoicePipeline {
         WhisperTranscriber.transcribe(wav)
                 .thenCompose(transcript -> {
                     ArdorConfig config = ArdorConfig.get();
-                    if (DEFAULT_GROQ_URL.equals(config.llmBaseUrl) && config.llmApiKey.isBlank()) {
-                        throw new IllegalStateException("llmApiKey not set in config/ardor.json");
+                    if (config.needsApiKey() && config.llmApiKey.isBlank()) {
+                        throw new IllegalStateException("llmApiKey not set in config/ardor.json for provider " + config.llmProvider);
                     }
                     String message = pingContext != null ? pingContext + "\n" + transcript : transcript;
-                    return new ChatCompletionClient(config.llmBaseUrl, config.llmApiKey, config.llmModel, config.llmReasoningEffort)
+                    return new ChatCompletionClient(config.effectiveBaseUrl(), config.llmApiKey, config.effectiveModel(), config.llmReasoningEffort)
                             .complete(ResponseHandler.systemPromptFor(config.llmMode), message);
                 })
                 .thenAccept(response -> ResponseHandler.handle(response, ArdorConfig.get().llmMode))

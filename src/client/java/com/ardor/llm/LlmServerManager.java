@@ -20,14 +20,11 @@ import java.time.Duration;
  * documented launch shape this mirrors (`llama-server.exe -m
  * training/gguf_final/qwen2.5-3b-instruct.Q4_K_M.gguf --port 8081 -ngl 99`).
  *
- * Deliberately NOT bundled inside the jar or copied into the CurseForge
- * instance directory: the model + CUDA llama.cpp build are ~2.5GB combined
- * (1.8GB GGUF + 669MB of DLLs), and the instance's drive (C:) had only 12GB
- * free when this was built -- copying would have eaten a fifth of that for
- * a duplicate of files that already exist on D: (668GB free). config.llmServer*
- * paths default to that existing D:\ location directly. This is fine for a
- * personal single-machine mod; it would NOT survive being handed to another
- * user or machine as-is -- see TODO.md.
+ * Deliberately NOT bundled inside the jar: a GGUF model + CUDA llama.cpp build together run into
+ * the GBs, so there's no portable default to ship. config.llmServerExecutable/llmServerModelPath
+ * default to blank and llmAutoStart defaults to false -- each install points these at wherever it
+ * built or downloaded its own local model (see training/README.md), or skips local auto-start
+ * entirely and uses a cloud llmProvider instead (see LlmProvider).
  *
  * Only launches if nothing is already answering on config.llmBaseUrl (a
  * quick synchronous /models probe, acceptable to block on since this runs
@@ -49,6 +46,10 @@ public final class LlmServerManager {
     public static void register() {
         ArdorConfig config = ArdorConfig.get();
         if (!config.llmAutoStart) return;
+        if (LlmProvider.fromConfigValue(config.llmProvider) != LlmProvider.LOCAL) {
+            System.err.println("[ardor] llm auto-start: llmProvider is " + config.llmProvider + ", not LOCAL -- skipping (auto-start only manages a local llama-server)");
+            return;
+        }
         try {
             maybeStart(config);
         } catch (RuntimeException e) {
@@ -58,8 +59,9 @@ public final class LlmServerManager {
     }
 
     private static void maybeStart(ArdorConfig config) {
-        if (isServerUp(config.llmBaseUrl, 1500)) {
-            System.err.println("[ardor] llm auto-start: something's already answering at " + config.llmBaseUrl + ", not launching a duplicate");
+        String baseUrl = config.effectiveBaseUrl();
+        if (isServerUp(baseUrl, 1500)) {
+            System.err.println("[ardor] llm auto-start: something's already answering at " + baseUrl + ", not launching a duplicate");
             LlmStatus.markConnected();
             return;
         }

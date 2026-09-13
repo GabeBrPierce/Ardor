@@ -48,11 +48,9 @@ public final class ChatListener {
         });
     }
 
-    private static final String DEFAULT_GROQ_URL = "https://api.groq.com/openai/v1";
-
     private static void respond(String senderName, String text) {
         ArdorConfig config = ArdorConfig.get();
-        if (DEFAULT_GROQ_URL.equals(config.llmBaseUrl) && config.llmApiKey.isBlank()) return; // not configured -- stay silent
+        if (config.needsApiKey() && config.llmApiKey.isBlank()) return; // not configured -- stay silent
         StatusIndicator.show("Thinking...");
         // single_command's fine-tuned model only ever saw clean commands during training
         // (see training/build_sft_dataset.py) -- no "name says:" framing, no wake word in
@@ -61,7 +59,7 @@ public final class ChatListener {
         String userMessage = "single_command".equals(config.llmMode)
                 ? stripWakeWord(text, config.wakeWord)
                 : senderName + " says: " + text;
-        new ChatCompletionClient(config.llmBaseUrl, config.llmApiKey, config.llmModel, config.llmReasoningEffort)
+        new ChatCompletionClient(config.effectiveBaseUrl(), config.llmApiKey, config.effectiveModel(), config.llmReasoningEffort)
                 .complete(ResponseHandler.systemPromptFor(config.llmMode), userMessage)
                 .thenAccept(response -> ResponseHandler.handle(response, config.llmMode))
                 .exceptionally(err -> {

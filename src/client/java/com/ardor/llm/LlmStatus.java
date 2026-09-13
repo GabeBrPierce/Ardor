@@ -41,7 +41,7 @@ public final class LlmStatus {
     /** Kicks off an async reachability check if one isn't already in flight; safe to call often (e.g. every screen tick). */
     public static void refresh() {
         if (!checking.compareAndSet(false, true)) return;
-        CompletableFuture.supplyAsync(() -> LlmServerManager.isServerUp(ArdorConfig.get().llmBaseUrl, 2000))
+        CompletableFuture.supplyAsync(() -> LlmServerManager.isServerUp(ArdorConfig.get().effectiveBaseUrl(), 2000))
                 .thenAccept(up -> {
                     state = up ? State.CONNECTED : State.DISCONNECTED;
                     checking.set(false);

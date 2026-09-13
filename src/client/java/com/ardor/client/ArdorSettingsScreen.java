@@ -1,6 +1,7 @@
 package com.ardor.client;
 
 import com.ardor.config.ArdorConfig;
+import com.ardor.llm.LlmProvider;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
@@ -8,6 +9,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -30,17 +32,24 @@ public final class ArdorSettingsScreen {
         ConfigEntryBuilder eb = builder.entryBuilder();
 
         ConfigCategory llm = builder.getOrCreateCategory(Component.literal("LLM"));
+        llm.addEntry(eb.startStringDropdownMenu(Component.literal("Provider"), cfg.llmProvider)
+                .setSelections(Arrays.stream(LlmProvider.values()).map(Enum::name).toList())
+                .setTooltip(Component.literal("Picks the default Base URL/Model below when those are left blank. LOCAL = a llama-server you run yourself; the rest are cloud APIs and need an API Key."))
+                .setSaveConsumer(v -> cfg.llmProvider = v)
+                .build());
         llm.addEntry(eb.startStrField(Component.literal("Base URL"), cfg.llmBaseUrl)
-                .setDefaultValue("http://127.0.0.1:8081/v1")
-                .setTooltip(Component.literal("OpenAI-compatible base URL (not the full /chat/completions path)."))
+                .setDefaultValue("")
+                .setTooltip(Component.literal("OpenAI-compatible base URL (not the full /chat/completions path). Blank = use Provider's default."))
                 .setSaveConsumer(v -> cfg.llmBaseUrl = v)
                 .build());
         llm.addEntry(eb.startStrField(Component.literal("API Key"), cfg.llmApiKey)
                 .setDefaultValue("")
+                .setTooltip(Component.literal("Required for every Provider except LOCAL."))
                 .setSaveConsumer(v -> cfg.llmApiKey = v)
                 .build());
         llm.addEntry(eb.startStrField(Component.literal("Model"), cfg.llmModel)
-                .setDefaultValue("qwen2.5-3b-instruct")
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Blank = use Provider's default model."))
                 .setSaveConsumer(v -> cfg.llmModel = v)
                 .build());
         llm.addEntry(eb.startStringDropdownMenu(Component.literal("Mode"), cfg.llmMode)
@@ -59,13 +68,18 @@ public final class ArdorSettingsScreen {
 
         ConfigCategory localServer = builder.getOrCreateCategory(Component.literal("Local LLM Server"));
         localServer.addEntry(eb.startBooleanToggle(Component.literal("Auto-start"), cfg.llmAutoStart)
-                .setDefaultValue(true)
+                .setDefaultValue(false)
+                .setTooltip(Component.literal("Only takes effect when Provider (in LLM) is LOCAL. Launches Server Executable with Model Path on client start."))
                 .setSaveConsumer(v -> cfg.llmAutoStart = v)
                 .build());
         localServer.addEntry(eb.startStrField(Component.literal("Server Executable"), cfg.llmServerExecutable)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Path to your own llama-server.exe. See training/README.md."))
                 .setSaveConsumer(v -> cfg.llmServerExecutable = v)
                 .build());
         localServer.addEntry(eb.startStrField(Component.literal("Model Path"), cfg.llmServerModelPath)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Path to your own GGUF model file."))
                 .setSaveConsumer(v -> cfg.llmServerModelPath = v)
                 .build());
         localServer.addEntry(eb.startIntField(Component.literal("Port"), cfg.llmServerPort)

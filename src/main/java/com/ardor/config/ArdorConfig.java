@@ -2,6 +2,7 @@ package com.ardor.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.ardor.llm.LlmProvider;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -14,42 +15,49 @@ import java.util.List;
  * llmApiKey is blank by default -- the voice pipeline no-ops without one
  * rather than crash; see VoicePipeline.
  *
- * llmBaseUrl/llmApiKey/llmModel/llmMode default to the LOCAL fine-tuned
- * model's llama-server (training/README.md's documented shape:
- * http://127.0.0.1:8081/v1, no key needed, "single_command" protocol) as of
- * 2026-09-01 -- LlmServerManager auto-launches that server on client start
- * (see llmAutoStart/llmServer* below), so this is what a fresh install
- * actually gets without any manual setup. Point llmBaseUrl at Groq or any
- * other OpenAI-compatible endpoint instead (see ChatCompletionClient) to go
- * back to a frozen cloud model -- set llmMode to "say_do" and
- * llmReasoningEffort if the target is a reasoning model (gpt-oss-* needed
- * "low" or a tight max_tokens budget could return empty content).
- * llmBaseUrl is a BASE URL, not the full .../chat/completions path --
- * ChatCompletionClient appends the rest.
+ * llmProvider picks a preset from LlmProvider (local llama-server, Groq, OpenAI, OpenRouter,
+ * Together AI, or a fully custom OpenAI-compatible endpoint). llmBaseUrl/llmModel are left blank by
+ * default and take the provider's default when blank (see effectiveBaseUrl()/effectiveModel()) --
+ * set them explicitly to override the preset without switching provider. llmApiKey is required for
+ * every provider except LOCAL. llmMode/llmReasoningEffort still apply on top: set llmMode to
+ * "say_do" for a frozen general-purpose model (vs. "single_command" for training/'s fine-tuned
+ * protocol), and llmReasoningEffort if the target is a reasoning model (gpt-oss-* needs "low" or a
+ * tight max_tokens budget can return empty content).
  */
 public final class ArdorConfig {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static ArdorConfig instance;
 
-    public String llmBaseUrl = "http://127.0.0.1:8081/v1";
+    public String llmProvider = LlmProvider.LOCAL.name();
+    public String llmBaseUrl = ""; // blank = use llmProvider's default; see effectiveBaseUrl()
     public String llmApiKey = "";
-    public String llmModel = "qwen2.5-3b-instruct";
+    public String llmModel = ""; // blank = use llmProvider's default; see effectiveModel()
     public String llmMode = "single_command"; // "say_do" (frozen cloud model) | "single_command" (training/'s fine-tuned protocol)
     public String llmReasoningEffort = ""; // only needed for cloud reasoning models like gpt-oss-*; blank for the local model
     public String wakeWord = "buddy";
 
-    // Auto-launches training/'s llama-server on client start so the mod
-    // "ships with" its own LLM -- see LlmServerManager. Paths default to
-    // this project's existing D:\ training/ output rather than a copy
-    // bundled into the CurseForge instance: the model + CUDA build are
-    // ~2.5GB combined, and the instance's drive had only 12GB free when
-    // this was added. Personal-machine setup, not portable as-is -- see
-    // TODO.md.
-    public boolean llmAutoStart = true;
-    public String llmServerExecutable = "D:\\source\\repos\\vibe-code\\minecraft-mods\\Ardor\\training\\llama_server\\llama-server.exe";
-    public String llmServerModelPath = "D:\\source\\repos\\vibe-code\\minecraft-mods\\Ardor\\training\\gguf_final\\qwen2.5-3b-instruct.Q4_K_M.gguf";
+    // Auto-launches a local llama-server on client start so LOCAL-provider users don't have to run
+    // one by hand -- see LlmServerManager. Off by default and with blank paths: this has no sane
+    // machine-independent default (it points at wherever you built training/'s model), so it's
+    // opt-in per install rather than assuming everyone has a local model set up. Only takes effect
+    // when llmProvider is LOCAL.
+    public boolean llmAutoStart = false;
+    public String llmServerExecutable = "";
+    public String llmServerModelPath = "";
     public int llmServerPort = 8081;
+
+    public String effectiveBaseUrl() {
+        return llmBaseUrl.isBlank() ? LlmProvider.fromConfigValue(llmProvider).defaultBaseUrl : llmBaseUrl;
+    }
+
+    public String effectiveModel() {
+        return llmModel.isBlank() ? LlmProvider.fromConfigValue(llmProvider).defaultModel : llmModel;
+    }
+
+    public boolean needsApiKey() {
+        return LlmProvider.fromConfigValue(llmProvider).needsApiKey;
+    }
     public String whisperBinaryPath = "";
     public String whisperModelPath = "";
     public String piperBinaryPath = "";

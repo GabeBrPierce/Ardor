@@ -70,8 +70,14 @@ unfixed bugs. Entries are removed once resolved; resolved history lives in git/s
 ### Voice pipeline
 - No conversation memory across turns -- each call is a fresh system+user prompt.
 
+### LLM providers (LlmProvider / ChatCompletionClient)
+- Only the OpenAI-compatible chat/completions shape is supported (Groq, OpenAI, OpenRouter,
+  Together AI, local llama-server). Anthropic's native Messages API uses a different
+  request/response shape and isn't implemented.
+- No per-provider validation that an entered API key/model actually works before the first voice
+  command is attempted.
+
 ### Local LLM server (LlmServerManager)
-- `llama-server.exe` isn't set up to auto-start with the game.
 - No supervision/restart if the local server crashes or is closed mid-session.
 
 ### Chat-triggered interaction (ChatListener)
