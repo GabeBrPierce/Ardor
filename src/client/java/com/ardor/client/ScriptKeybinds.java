@@ -26,7 +26,7 @@ public final class ScriptKeybinds {
         for (int i = 0; i < SLOT_COUNT; i++) {
             int slot = i + 1;
             KEYS[i] = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                    "key.ardor.scriptslot" + slot, InputConstants.UNKNOWN.getValue(), KeyMapping.Category.MISC));
+                    "key.ardor.scriptslot" + slot, InputConstants.UNKNOWN.getValue(), ArdorKeyCategory.ARDOR));
         }
     }
 

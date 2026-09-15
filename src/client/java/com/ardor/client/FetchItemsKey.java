@@ -9,7 +9,7 @@ import net.minecraft.client.Minecraft;
 public final class FetchItemsKey {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.fetchitems", InputConstants.KEY_H, KeyMapping.Category.MISC));
+            "key.ardor.fetchitems", InputConstants.KEY_H, ArdorKeyCategory.ARDOR));
 
     private FetchItemsKey() {}
 

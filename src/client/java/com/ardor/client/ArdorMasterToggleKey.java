@@ -8,7 +8,7 @@ import net.minecraft.client.KeyMapping;
 public final class ArdorMasterToggleKey {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.mastertoggle", InputConstants.KEY_O, KeyMapping.Category.MISC));
+            "key.ardor.mastertoggle", InputConstants.KEY_O, ArdorKeyCategory.ARDOR));
 
     private ArdorMasterToggleKey() {}
 

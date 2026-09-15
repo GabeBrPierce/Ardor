@@ -8,7 +8,7 @@ import net.minecraft.client.KeyMapping;
 public final class PanicStopKey {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.panicstop", InputConstants.KEY_K, KeyMapping.Category.MISC));
+            "key.ardor.panicstop", InputConstants.KEY_K, ArdorKeyCategory.ARDOR));
 
     private PanicStopKey() {}
 

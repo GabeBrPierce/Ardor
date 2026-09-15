@@ -25,7 +25,7 @@ import java.util.List;
 public final class ScriptWheelKey {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.scriptwheel", InputConstants.KEY_J, KeyMapping.Category.MISC));
+            "key.ardor.scriptwheel", InputConstants.KEY_J, ArdorKeyCategory.ARDOR));
 
     private ScriptWheelKey() {}
 

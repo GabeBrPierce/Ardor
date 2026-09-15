@@ -9,7 +9,7 @@ import net.minecraft.client.Minecraft;
 public final class TaskPlannerKey {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.taskplanner", InputConstants.KEY_B, KeyMapping.Category.MISC));
+            "key.ardor.taskplanner", InputConstants.KEY_B, ArdorKeyCategory.ARDOR));
 
     private TaskPlannerKey() {}
 

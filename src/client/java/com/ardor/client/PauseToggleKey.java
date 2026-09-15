@@ -18,7 +18,7 @@ import net.minecraft.client.KeyMapping;
 public final class PauseToggleKey {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.pausetoggle", InputConstants.KEY_P, KeyMapping.Category.MISC));
+            "key.ardor.pausetoggle", InputConstants.KEY_P, ArdorKeyCategory.ARDOR));
 
     private PauseToggleKey() {}
 
