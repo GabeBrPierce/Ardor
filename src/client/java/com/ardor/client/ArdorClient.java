@@ -6,6 +6,7 @@ import com.ardor.bridge.BridgeServer;
 import com.ardor.bridge.PeerServer;
 import com.ardor.container.AutoSourceRecorder;
 import com.ardor.event.EventHookDispatcher;
+import com.ardor.event.ScriptEventBindings;
 import com.ardor.game.ArrowDodgeController;
 import com.ardor.game.AutoEatController;
 import com.ardor.game.AutoFleeController;
@@ -43,6 +44,7 @@ public class ArdorClient implements ClientModInitializer {
         AgentControlChannel.register();
         RegionCommands.register();
         EventHookDispatcher.register();
+        ScriptEventBindings.register();
         PickWheelKey.register();
         SingleSelectionOverlay.register();
         LlmServerManager.register();

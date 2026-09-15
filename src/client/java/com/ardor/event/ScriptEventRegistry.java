@@ -53,6 +53,12 @@ public final class ScriptEventRegistry {
         return def.subscribers.remove(subscriberHandle) != null;
     }
 
+    /** Drops every current subscriber for `name`, if it exists. For a caller that re-derives its whole subscriber list from its own storage on every registration (ScriptEventBindings) rather than holding stable handles across calls -- setEvent alone would otherwise leave the previous call's now-orphaned subscriber objects attached forever, since subscribe() keys by object identity. */
+    public static void clearSubscribers(String name) {
+        EventDef def = events.get(name);
+        if (def != null) def.subscribers.clear();
+    }
+
     public static List<String> queryEvent(String regex) {
         Pattern pattern = Pattern.compile(regex);
         return events.keySet().stream()

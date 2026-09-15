@@ -58,7 +58,8 @@ public final class ScriptWheelKey {
         return options;
     }
 
-    private static void run(ScriptWheelEntry entry) {
+    /** Runs a script-or-macro entry by its kind/name -- shared with ScriptEventBindings' subscriber firing, same shape. */
+    public static void run(ScriptWheelEntry entry) {
         if ("macro".equals(entry.kind)) {
             JsonObject action = new JsonObject();
             action.addProperty("action", "macro");

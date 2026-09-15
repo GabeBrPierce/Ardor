@@ -113,6 +113,22 @@ public final class ScriptEngine {
         resume(thread, LuaValue.NONE);
     }
 
+    /**
+     * Runs `source` as a plain, non-yielding call (not a coroutine) against the shared Globals, and
+     * returns its final expression's truthiness -- for a saved script used as an event predicate
+     * (ScriptEventBindings/ScriptEventEditScreen), not the coroutine-based run() everything else
+     * uses. A predicate script that calls a blocking binding (pause, home, ...) gets LuaJ's own
+     * "cannot yield" LuaError, caught here same as an inline EventManager predicate function.
+     */
+    public static boolean runPredicate(String source) {
+        try {
+            return globals().load(source, "event-predicate").call().toboolean();
+        } catch (LuaError e) {
+            System.err.println("[ardor] event predicate script failed: " + e.getMessage());
+            return false;
+        }
+    }
+
     /** Cancels EVERY running script, not one handle -- simplest reading of "//ardor script stop" now that several can be in flight. Can't forcibly unwind a suspended coroutine (LuaJ has no hard kill); dropping the reference just means it's never resumed again. */
     public static void cancel() {
         RUNNING.clear();
