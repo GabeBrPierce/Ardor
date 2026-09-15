@@ -32,6 +32,11 @@ public final class ScriptKeybinds {
 
     private ScriptKeybinds() {}
 
+    /** The real KeyMapping for a slot (1..SLOT_COUNT) -- for reading its currently bound physical key, e.g. via getTranslatedKeyMessage(). */
+    public static KeyMapping key(int slot) {
+        return KEYS[slot - 1];
+    }
+
     public static void register() {
         for (int i = 0; i < SLOT_COUNT; i++) {
             int slot = i + 1;

@@ -190,6 +190,26 @@ public final class ArdorSettingsScreen {
                 .setSaveConsumer(v -> cfg.companionLauncherPath = v)
                 .build());
 
+        ConfigCategory peers = builder.getOrCreateCategory(Component.literal("Peers"));
+        padTop(eb, peers);
+        peers.addEntry(eb.startBooleanToggle(Component.literal("Peer Listen Enabled"), cfg.peerListenEnabled)
+                .setDefaultValue(false)
+                .setTooltip(Component.literal("LAN-only transport so another Ardor instance can query/command this one. See bridge/PeerServer.java."))
+                .setSaveConsumer(v -> cfg.peerListenEnabled = v)
+                .build());
+        peers.addEntry(eb.startIntField(Component.literal("Peer Listen Port"), cfg.peerListenPort)
+                .setDefaultValue(24900)
+                .setMin(1).setMax(65535)
+                .setSaveConsumer(v -> cfg.peerListenPort = v)
+                .build());
+        peers.addEntry(eb.startStrField(Component.literal("Peer Shared Secret"), cfg.peerSharedSecret)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Gates inbound connections and authenticates outbound ones. Every peer that should talk to this instance must use the same secret."))
+                .setSaveConsumer(v -> cfg.peerSharedSecret = v)
+                .build());
+        // The `peers` list (name/host/port entries) has no editor here -- edit config/ardor.json by
+        // hand for now, see TODO.md.
+
         return builder.build();
     }
 

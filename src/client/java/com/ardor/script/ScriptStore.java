@@ -44,6 +44,14 @@ public final class ScriptStore {
         return Files.exists(dir().resolve(name + ".lua"));
     }
 
+    public static void delete(String name) {
+        try {
+            Files.deleteIfExists(dir().resolve(name + ".lua"));
+        } catch (IOException e) {
+            throw new RuntimeException("failed to delete script '" + name + "': " + e.getMessage(), e);
+        }
+    }
+
     public static List<String> list() {
         try (var stream = Files.list(dir())) {
             return stream.map(p -> p.getFileName().toString())

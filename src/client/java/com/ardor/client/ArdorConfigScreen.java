@@ -37,7 +37,8 @@ public final class ArdorConfigScreen extends Screen {
         // Clamp instead of pure vertical centering: at a high GUI Scale (small logical height),
         // centering alone pushed the first row (Settings) to a negative Y, clipped above the
         // top edge -- barely visible/unreachable.
-        int y = Math.max(20, height / 2 - (BUTTON_HEIGHT * 7 + ROW_GAP * 6) / 2);
+        int rowCount = 9;
+        int y = Math.max(20, height / 2 - (BUTTON_HEIGHT * rowCount + ROW_GAP * (rowCount - 1)) / 2);
 
         y = addRow(x, y, "Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this)));
         y = addRow(x, y, "Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen()));
@@ -45,6 +46,8 @@ public final class ArdorConfigScreen extends Screen {
         y = addRow(x, y, "Events", b -> Minecraft.getInstance().setScreen(new EventConfigScreen()));
         y = addRow(x, y, "Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen()));
         y = addRow(x, y, "Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen()));
+        y = addRow(x, y, "Scripts", b -> Minecraft.getInstance().setScreen(new ScriptListScreen()));
+        y = addRow(x, y, "Script Keybinds", b -> Minecraft.getInstance().setScreen(new ScriptKeybindScreen()));
         addRow(x, y, "Done", b -> onClose());
     }
 

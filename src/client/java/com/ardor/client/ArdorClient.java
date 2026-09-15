@@ -3,6 +3,7 @@ package com.ardor.client;
 import com.ardor.agent.AgentControlChannel;
 import com.ardor.bridge.BaritoneNav;
 import com.ardor.bridge.BridgeServer;
+import com.ardor.bridge.PeerServer;
 import com.ardor.container.AutoSourceRecorder;
 import com.ardor.event.EventHookDispatcher;
 import com.ardor.game.ArrowDodgeController;
@@ -47,6 +48,7 @@ public class ArdorClient implements ClientModInitializer {
         LlmServerManager.register();
         MacroCommands.register();
         BridgeServer.register();
+        PeerServer.register();
         RegionRenderer.register();
         SocialGreetingController.register();
         AutoEatController.register();

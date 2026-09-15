@@ -33,7 +33,8 @@ public final class ScriptWheelKey {
         KeybindTicker.add(KEY, ScriptWheelKey::open);
     }
 
-    private static void open() {
+    /** Public so ScriptEngine's WheelManager.show() binding opens the exact same wheel this key does. */
+    public static void open() {
         Minecraft client = Minecraft.getInstance();
         if (client.screen == null) {
             client.setScreen(new ArdorWheelScreen(buildOptions()));

@@ -3,6 +3,61 @@
 Convention: this file lists only currently open work -- stubbed features, deferred asks, and known
 unfixed bugs. Entries are removed once resolved; resolved history lives in git/session logs, not here.
 
+## Lua API: four deliberate approximations in the new ScriptEngine surface (2026-09-15)
+
+`script/ScriptEngine.java` grew a large bound API this pass (shared session-persistent Globals,
+multiple concurrent coroutines, EventManager/ArdorUsers/PLAYER/RegionManager/ScriptManager/
+MacroManager/WheelManager tables). Four parts are knowingly approximate:
+
+- **`startCooldown(ticks, showBar, label)`'s `showBar` is not a real HUD bar** -- it prints a
+  "label: Ns remaining" `StatusIndicator` line once a second. A genuine progress element would need
+  a new HUD render layer (nothing in this codebase draws persistent overlays except
+  `QuestTrackerOverlay`); reusing that is the obvious follow-up.
+- **`kill`/`killAll`'s `autoSwapWeapon` uses a fixed material-order preference list**, not a real
+  damage comparison. `ToolSelector` only ranks MINING tools (Tool component mining speed /
+  correct-for-drops), which says nothing about melee damage, so there was nothing to reuse. Ignores
+  enchantments and any modded weapon that isn't a vanilla-named sword/axe.
+- **`EventManager` predicates and subscribe callbacks are non-yielding plain Lua calls.** They run
+  off `ScriptEventRegistry`'s poll on the client thread, not inside a resumable coroutine, so
+  calling a blocking binding (`pause`, `home`, `promptLLM`, an `ArdorUsers` field) from inside one
+  raises "cannot yield" instead of suspending. Caught and logged, never allowed to reach the tick
+  loop, but it's a real authoring foot-gun with no friendly error.
+- **`WheelManager` is `.show()`/`.hide()` only.** `.create`/`.edit`/`.delete`/named-wheel lookup
+  need a named multi-wheel data model; `ScriptWheelStore` holds exactly one wheel today.
+
+Also unbuilt, and the natural next step once the peer transport is proven: per-verb async proxy
+methods on an `ArdorUsers[i]` entry (`:KillAsync(...)` and friends). Today there is only the generic
+`:command(text)` plus the live-queried `health`/`canFly`/`hunger`/`saturation`/`gameMode` fields.
+
+## Peer transport -- no settings-screen editor for the peers list, no encryption (2026-09-15)
+
+`bridge/PeerServer.java` / `bridge/PeerClient.java`: a genuinely minimal LAN-only transport between
+two separate Ardor instances, built as a deliberately small first sketch. Two scope gaps left open
+on purpose, not oversights:
+
+- `ArdorConfig.peers` (the name/host/port list) has no Cloth Config editor -- hand-edit
+  `config/ardor.json` for now. `ArdorSettingsScreen`'s Peers category only exposes
+  `peerListenEnabled`/`peerListenPort`/`peerSharedSecret`.
+- No encryption beyond the shared secret gating connections (`PeerServer.secretOk`) -- fine for a
+  LAN, not designed to be exposed to the open internet.
+
+## ScriptEditScreen is plain text only -- highlighting/autocomplete deferred (2026-09-15)
+
+New `ScriptEditScreen` (Edit Script: <name>) wraps vanilla `MultiLineEditBox` -- MC 26.1.2 ships a
+real multi-line editable/scrollable text area (`MultilineTextField` behind
+`AbstractTextAreaWidget`), so nothing was hand-rolled: wrapping, selection, click/drag, word
+navigation, Home/End/PageUp/PageDown and clipboard all come from vanilla. Only Tab needed adding
+(`MultilineTextField.keyPressed` handles 12 keycodes, Tab isn't one of them) -- intercepted in
+`ScriptEditScreen.keyPressed` and turned into 4 space inserts.
+
+- **No Lua syntax highlighting and no autocomplete**, deliberately scoped out of this first pass.
+  Vanilla's renderer draws each display line with a single flat `textColor`, so highlighting means
+  either a `FormattedCharSequence`-producing replacement for `extractContents` or dropping the
+  vanilla widget for a hand-rolled one -- neither attempted here.
+- **Shift-Tab dedent / block-indent of a multi-line selection not implemented.** Tab always inserts
+  4 spaces at the cursor (replacing the selection, if any), which is the vanilla insert semantics.
+- **Not live-tested.**
+
 ## Freecam and right-click context-menu selection -- researched, not built (2026-09-15)
 
 User wants: a freecam mode, and a right-click-hold-to-open-context-menu alternative to the existing

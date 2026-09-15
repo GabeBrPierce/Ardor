@@ -135,6 +135,23 @@ public final class ArdorConfig {
     // ...\Ardor-Companion\build\install\ardor-companion\bin\ardor-companion.bat. See CompanionLauncher.
     public String companionLauncherPath = "";
 
+    // LAN-only peer transport (see bridge/PeerServer.java, bridge/PeerClient.java) -- lets one
+    // Ardor instance query/command another separate instance (alt account, or a friend's client on
+    // the same LAN). Off by default and unlike bridgePort, binds 0.0.0.0 (LAN-reachable) when
+    // enabled -- gated only by peerSharedSecret, the first line every connection must send. Not
+    // designed to be exposed to the open internet: no encryption, no per-peer secrets.
+    public boolean peerListenEnabled = false;
+    public int peerListenPort = 24900;
+    public String peerSharedSecret = "";
+    // Edited by hand in ardor.json for now -- no settings-screen editor this pass, see TODO.md.
+    public List<PeerEntry> peers = List.of();
+
+    public static final class PeerEntry {
+        public String name;
+        public String host;
+        public int port;
+    }
+
     public static ArdorConfig get() {
         if (instance == null) instance = load();
         return instance;
