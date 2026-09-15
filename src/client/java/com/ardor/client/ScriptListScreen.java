@@ -41,9 +41,11 @@ public final class ScriptListScreen extends Screen {
         addRenderableWidget(nameBox);
         setInitialFocus(nameBox);
 
-        FlowLayout flow = new FlowLayout(320, 10, width - 75, 20, 4, 4);
+        FlowLayout flow = new FlowLayout(320, 10, width - 130, 20, 4, 4);
         int[] pos = flow.next(90);
         addRenderableWidget(Button.builder(Component.literal("New"), b -> onNew()).bounds(pos[0], pos[1], 90, 20).build());
+        addRenderableWidget(Button.builder(Component.literal("Help"), b -> Minecraft.getInstance().setScreen(new ScriptDocsScreen(this)))
+                .bounds(width - 120, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
 

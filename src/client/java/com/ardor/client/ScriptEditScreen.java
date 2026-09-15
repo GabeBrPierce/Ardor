@@ -1,6 +1,7 @@
 package com.ardor.client;
 
 import com.ardor.script.ScriptStore;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.MultilineTextField;
@@ -92,10 +93,18 @@ public final class ScriptEditScreen extends Screen {
         textField.setValue(source);
         textField.setValueListener(v -> { source = v; resetCompletion(); });
 
+        addRenderableWidget(Button.builder(Component.literal("Help"), b -> onHelp())
+                .bounds(width - 190, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Save"), b -> onSave())
                 .bounds(width - 125, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
+    }
+
+    /** Saves before leaving for the docs -- Help navigates away from the editor same as Close would, so it shouldn't discard an unsaved edit to get there. */
+    private void onHelp() {
+        ScriptStore.save(scriptName, source);
+        Minecraft.getInstance().setScreen(new ScriptDocsScreen(this));
     }
 
     private int visibleLines() {
