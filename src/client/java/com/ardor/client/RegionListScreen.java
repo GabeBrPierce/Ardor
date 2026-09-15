@@ -39,16 +39,24 @@ public final class RegionListScreen extends Screen {
         clearWidgets();
 
         newNameBox = new EditBox(font, 10, 10, 200, 20, Component.literal("New region name"));
+        newNameBox.setHint(Component.literal("New region name"));
         newNameBox.setMaxLength(64);
         addRenderableWidget(newNameBox);
+
+        FlowLayout flow = new FlowLayout(215, 10, width - 75, 20, 4, 4);
+        int[] pos = flow.next(160);
         addRenderableWidget(Button.builder(Component.literal("New (at my position)"), b -> onNew())
-                .bounds(215, 10, 160, 20).build());
+                .bounds(pos[0], pos[1], 160, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
 
         RegionProfile profile = RegionManager.get().currentProfile();
+
+        // Combat aggressiveness (Passive Mobs/Hostile Mobs/Players) is a per-region Region
+        // Behavior Setting now, not a separate profile-wide toggle -- edit the "global" row below
+        // (always present, see RegionManager.ensureGlobalRegion) to set this profile's own default.
         List<String> names = new ArrayList<>(profile.regions.keySet());
-        int y = 46;
+        int y = Math.max(40, flow.bottom() + 4);
         for (String name : names) {
             String n = name;
             addRenderableWidget(Button.builder(Component.literal(n), b -> Minecraft.getInstance().setScreen(new RegionEditScreen(n)))
@@ -82,6 +90,7 @@ public final class RegionListScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, width, height, 0xC0101010);
+        g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
         g.text(font, "Profile: " + RegionManager.currentProfileKey(), 10, height - 20, 0xFFAAAAAA);
         if (!statusLine.isEmpty()) g.text(font, statusLine, 10, height - 34, 0xFFFF5555);
         super.extractRenderState(g, mouseX, mouseY, partialTick);

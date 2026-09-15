@@ -1,4 +1,14 @@
 {
   "key.ardor.talk": "Push to Talk",
-  "key.ardor.fetchitems": "Open Fetch Items"
+  "key.ardor.fetchitems": "Open Fetch Items",
+  "key.ardor.scriptwheel": "Open Script Wheel",
+  "key.ardor.scriptslot1": "Ardor Script Slot 1",
+  "key.ardor.scriptslot2": "Ardor Script Slot 2",
+  "key.ardor.scriptslot3": "Ardor Script Slot 3",
+  "key.ardor.scriptslot4": "Ardor Script Slot 4",
+  "key.ardor.scriptslot5": "Ardor Script Slot 5",
+  "key.ardor.scriptslot6": "Ardor Script Slot 6",
+  "key.ardor.taskplanner": "Open Task Planner",
+  "key.ardor.panicstop": "PANIC STOP (halt everything)",
+  "key.ardor.pausetoggle": "Pause/Resume Task"
 }

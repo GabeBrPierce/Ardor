@@ -78,6 +78,7 @@ public final class SourceEditScreen extends Screen {
 
         if (type != SourceType.COMMAND) {
             nameBox = new EditBox(font, 10, y, 300, 20, Component.literal("Name"));
+            nameBox.setHint(Component.literal("Name"));
             nameBox.setMaxLength(64);
             nameBox.setValue(existing != null && existing.name != null ? existing.name : "");
             addRenderableWidget(nameBox);
@@ -85,9 +86,9 @@ public final class SourceEditScreen extends Screen {
         }
 
         if (type == SourceType.PHYSICAL || type == SourceType.CAULDRON) {
-            xBox = smallBox(10, y, existing != null && existing.x != null ? String.valueOf(existing.x) : "");
-            yBox = smallBox(80, y, existing != null && existing.y != null ? String.valueOf(existing.y) : "");
-            zBox = smallBox(150, y, existing != null && existing.z != null ? String.valueOf(existing.z) : "");
+            xBox = smallBox(10, y, existing != null && existing.x != null ? String.valueOf(existing.x) : "", "X");
+            yBox = smallBox(80, y, existing != null && existing.y != null ? String.valueOf(existing.y) : "", "Y");
+            zBox = smallBox(150, y, existing != null && existing.z != null ? String.valueOf(existing.z) : "", "Z");
             addRenderableWidget(Button.builder(Component.literal("Use my position"), b -> useMyPosition())
                     .bounds(230, y, 130, 20).build());
             y += 26;
@@ -104,17 +105,18 @@ public final class SourceEditScreen extends Screen {
 
             if (parentByName) {
                 parentNameBox = new EditBox(font, 10, y, 220, 20, Component.literal("Parent source name"));
+                parentNameBox.setHint(Component.literal("Parent source name"));
                 parentNameBox.setMaxLength(64);
                 parentNameBox.setValue(existing != null && existing.parentSourceId != null ? parentSourceLabel(existing.parentSourceId) : "");
                 addRenderableWidget(parentNameBox);
             } else {
-                parentXBox = smallBox(10, y, existing != null && existing.parentX != null ? String.valueOf(existing.parentX) : "");
-                parentYBox = smallBox(80, y, existing != null && existing.parentY != null ? String.valueOf(existing.parentY) : "");
-                parentZBox = smallBox(150, y, existing != null && existing.parentZ != null ? String.valueOf(existing.parentZ) : "");
+                parentXBox = smallBox(10, y, existing != null && existing.parentX != null ? String.valueOf(existing.parentX) : "", "X");
+                parentYBox = smallBox(80, y, existing != null && existing.parentY != null ? String.valueOf(existing.parentY) : "", "Y");
+                parentZBox = smallBox(150, y, existing != null && existing.parentZ != null ? String.valueOf(existing.parentZ) : "", "Z");
             }
             y += 26;
 
-            parentSlotBox = smallBox(10, y, existing != null && existing.parentSlot != null ? String.valueOf(existing.parentSlot) : "0");
+            parentSlotBox = smallBox(10, y, existing != null && existing.parentSlot != null ? String.valueOf(existing.parentSlot) : "0", "Slot");
             y += 26;
         } else {
             commandBox = new EditBox(font, 10, y, 400, 20, Component.literal("Command"));
@@ -156,6 +158,7 @@ public final class SourceEditScreen extends Screen {
             addRenderableWidget(itemIdBox);
 
             customNameBox = new EditBox(font, 180, y, 140, 20, Component.literal("Custom name contains"));
+            customNameBox.setHint(Component.literal("Custom name contains"));
             customNameBox.setMaxLength(120);
             addRenderableWidget(customNameBox);
 
@@ -192,8 +195,9 @@ public final class SourceEditScreen extends Screen {
 
     private int contentsHeaderY;
 
-    private EditBox smallBox(int x, int y, String value) {
-        EditBox box = new EditBox(font, x, y, 60, 20, Component.literal(""));
+    private EditBox smallBox(int x, int y, String value, String hint) {
+        EditBox box = new EditBox(font, x, y, 60, 20, Component.literal(hint));
+        box.setHint(Component.literal(hint));
         box.setMaxLength(12);
         box.setValue(value);
         return addRenderableWidget(box);
@@ -340,6 +344,7 @@ public final class SourceEditScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, width, height, 0xC0101010);
+        g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
 
         String contentsLabel = type == SourceType.COMMAND ? "Expected Contents:" : "Desired Contents:";
         g.text(font, contentsLabel, 10, contentsHeaderY, 0xFFFFFFFF);

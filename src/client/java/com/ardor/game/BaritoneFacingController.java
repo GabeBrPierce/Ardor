@@ -34,6 +34,16 @@ public final class BaritoneFacingController {
     // Below this horizontal speed, velocity direction is mostly noise (standing still, a tiny nudge)
     // -- not worth spinning the camera to face it. ~0.05 blocks/tick, well under normal walk speed.
     private static final double MIN_SPEED_SQ = 0.0025;
+    // Raw per-tick velocity direction is itself noisy (collision/edge-alignment corrections Baritone
+    // makes while walking a straight-looking path) -- feeding it straight into smoothLookAt every
+    // tick read as a visible camera "wiggle" while just walking forward. Smoothing the heading
+    // itself with an exponential moving average before turning toward it removes that noise; a
+    // lower weight means slower to react to genuine direction changes (corners) but steadier on a
+    // straight line -- 0.15 favors steadiness since FACING_TURN_RATE/smoothLookAt's own easing
+    // already handles catching up to real turns.
+    private static final double HEADING_EMA_WEIGHT = 0.15;
+    private static Double smoothedHeadX;
+    private static Double smoothedHeadZ;
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -46,7 +56,11 @@ public final class BaritoneFacingController {
     }
 
     private static void tick(Minecraft client) {
-        if (!BaritoneNav.isPathing()) return;
+        if (!BaritoneNav.isPathing()) {
+            smoothedHeadX = null;
+            smoothedHeadZ = null;
+            return;
+        }
         LocalPlayer player = client.player;
         if (player == null) return;
 
@@ -54,8 +68,16 @@ public final class BaritoneFacingController {
         double speedSq = v.x * v.x + v.z * v.z;
         if (speedSq < MIN_SPEED_SQ) return;
 
-        double targetX = player.getX() + v.x * 10.0;
-        double targetZ = player.getZ() + v.z * 10.0;
+        if (smoothedHeadX == null) {
+            smoothedHeadX = v.x;
+            smoothedHeadZ = v.z;
+        } else {
+            smoothedHeadX = smoothedHeadX + (v.x - smoothedHeadX) * HEADING_EMA_WEIGHT;
+            smoothedHeadZ = smoothedHeadZ + (v.z - smoothedHeadZ) * HEADING_EMA_WEIGHT;
+        }
+
+        double targetX = player.getX() + smoothedHeadX * 10.0;
+        double targetZ = player.getZ() + smoothedHeadZ * 10.0;
         RotationUtil.smoothLookAt(player, targetX, player.getEyeY(), targetZ, FACING_TURN_RATE);
     }
 }

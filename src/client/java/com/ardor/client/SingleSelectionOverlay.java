@@ -12,11 +12,13 @@ import java.util.List;
 
 /**
  * "Show on top of the screen a small overlay of where the hologram is, formatted like WAILA" --
- * a compact icon + label box, top-center, visible only while SingleSelectionMode is active.
- * Purely a reader of SingleSelectionMode's overlayLines()/overlayIcon() -- no logic of its own,
- * same "renderer reads a controller's state" split RegionRenderer/PingKey already established.
- * Grows to multiple lines for a container (name, contents summary, expected-items count) -- see
- * SingleSelectionMode.buildContainerOverlayLines().
+ * a compact icon + label box, top-center. Serves BOTH SingleSelectionMode (icon + entity/container/
+ * hologram lines) and AreaSelectionMode (size + first-corner/center lines, no icon) -- the two are
+ * mutually exclusive (starting one stops the other), so whichever is actually active supplies this
+ * box's content; nothing renders while neither is. Purely a reader of both controllers' own
+ * overlayLines()/overlayIcon() -- no logic of its own, same "renderer reads a controller's state"
+ * split RegionRenderer/PingKey already established. Grows to multiple lines for a container (name,
+ * contents summary, expected-items count) -- see SingleSelectionMode.buildContainerOverlayLines().
  *
  * HudElementRegistry (not the older HudRenderCallback, which doesn't exist in this Fabric API
  * version -- confirmed via jar inspection, this version's HUD rendering was rebuilt into a named
@@ -37,12 +39,18 @@ public final class SingleSelectionOverlay {
     }
 
     private static void render(GuiGraphicsExtractor g, DeltaTracker tracker) {
+        // Single Selection and Area Selection are mutually exclusive (starting one stops the
+        // other, see both classes' start()) -- whichever is actually active supplies this box's
+        // lines, same WAILA-style rendering either way. "The area selector needs to show the same
+        // kind of WAILA display Single Selection does."
         List<String> lines = SingleSelectionMode.overlayLines();
+        boolean isAreaSelection = lines.isEmpty();
+        if (isAreaSelection) lines = AreaSelectionMode.overlayLines();
         if (lines.isEmpty()) return;
 
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
-        ItemStack icon = SingleSelectionMode.overlayIcon();
+        ItemStack icon = isAreaSelection ? ItemStack.EMPTY : SingleSelectionMode.overlayIcon();
         boolean hasIcon = !icon.isEmpty();
         int screenW = mc.getWindow().getGuiScaledWidth();
 

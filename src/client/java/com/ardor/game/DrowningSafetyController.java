@@ -1,5 +1,6 @@
 package com.ardor.game;
 
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -75,6 +76,11 @@ public final class DrowningSafetyController {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(DrowningSafetyController::onTick);
+        ArdorMasterToggle.register(DrowningSafetyController::cancel);
+    }
+
+    public static void cancel() {
+        stopSwimming();
     }
 
     private static void onTick(Minecraft client) {
@@ -87,6 +93,7 @@ public final class DrowningSafetyController {
     }
 
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer self = client.player;
         if (self == null || client.level == null) {
             stopSwimming();

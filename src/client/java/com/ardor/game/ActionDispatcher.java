@@ -1,6 +1,7 @@
 package com.ardor.game;
 
 import com.google.gson.JsonObject;
+import com.ardor.client.ArdorMasterToggle;
 import com.ardor.ir.AsciiActionCodec;
 import com.ardor.planner.PlannedTask;
 import com.ardor.planner.TaskRunner;
@@ -19,6 +20,11 @@ public final class ActionDispatcher {
     /** Returns a result string for query-style commands (currently just `query`), or null for anything that just acts on the world. Most callers ignore the return -- TaskRunner is the one that cares, forwarding it to Listener.onCommandResult. */
     public static String execute(JsonObject action) {
         String verb = action.get("action").getAsString();
+        // Master toggle off -- every ascii command (voice, event-triggered, Task Manager Run/
+        // Auto-Run, the companion bridge's AgentOps commands) funnels through here, so this one
+        // gate blocks all of them at once. `stop` itself must still get through -- ArdorMasterToggle
+        // dispatches it via PanicStop.now() on the same transition that flips this flag off.
+        if (!ArdorMasterToggle.isEnabled() && !verb.equals("stop")) return null;
         // taskadd/taskdel mutate TaskRunner's own queue rather than touching the game at all --
         // "the AI should have a command it has access to to create new tasks and delete tasks."
         // Handled here, before the normal controllers, since neither PathfindingController nor

@@ -8,7 +8,9 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
@@ -109,12 +111,19 @@ public final class SelectorResolver {
         String category = args.get("category");
         double distance = args.containsKey("distance") ? Double.parseDouble(args.get("distance")) : 64.0;
 
-        Entity self = self();
+        LocalPlayer self = self();
         AABB box = self.getBoundingBox().inflate(distance);
+        // "Only target entities within line of sight -- I am looking at mobs through walls."
+        // Scoped to category=hostile (the default-defend/Kill-All shape: "scan a radius, pick the
+        // nearest match" with no specific entity already in mind) rather than every @e[...] use --
+        // a selector that already names a specific type isn't the "suspicious wallhack" pattern
+        // this was about.
+        boolean requireLineOfSight = category != null;
         List<Entity> found = world().getEntitiesOfClass(Entity.class, box,
                 e -> e != self
                         && (type == null || e.getType() == type)
-                        && (category == null || matchesCategory(e, category)));
+                        && (category == null || matchesCategory(e, category))
+                        && (!requireLineOfSight || LineOfSight.hasLineOfSight(self, e)));
 
         String sort = args.getOrDefault("sort", "arbitrary");
         if ("nearest".equals(sort)) {
@@ -135,8 +144,20 @@ public final class SelectorResolver {
     private static boolean matchesCategory(Entity e, String category) {
         return switch (category) {
             case "hostile" -> e instanceof Monster;
+            // Not just "not hostile" -- restricted to Mob so item frames, boats, armor stands etc.
+            // (real Entity subtypes that would otherwise slip through category=passive) don't count.
+            case "passive" -> e instanceof Mob && !(e instanceof Monster);
+            case "player" -> e instanceof Player;
             default -> throw new IllegalArgumentException("Unknown category: " + category);
         };
+    }
+
+    /** "hostile"/"passive"/"player" for e, or null if it fits none of the three -- used by RegionCombatController and the entity sub-wheel's "Defend" action to classify an arbitrary entity the same way category= selectors already do, without duplicating matchesCategory's rules. */
+    public static String categoryOf(Entity e) {
+        if (e instanceof Monster) return "hostile";
+        if (e instanceof Player) return "player";
+        if (e instanceof Mob) return "passive";
+        return null;
     }
 
     private static ClientLevel world() {

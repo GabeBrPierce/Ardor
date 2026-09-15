@@ -131,9 +131,7 @@ public final class ResponseHandler {
         for (String line : response.lines().toList()) {
             String trimmed = line.trim();
             if (trimmed.startsWith("SAY:")) {
-                String text = trimmed.substring(4).trim();
-                ChatHistory.logBotResponse(text);
-                speak(text);
+                sayAloud(trimmed.substring(4).trim());
             } else if (trimmed.startsWith("DO:")) {
                 String cmd = trimmed.substring(3).trim();
                 doTasks.add(new PlannedTask(cmd, List.of(cmd)));
@@ -162,6 +160,12 @@ public final class ResponseHandler {
         } catch (RuntimeException e) {
             System.err.println("[ardor] action failed: " + cmd + " -- " + e.getMessage());
         }
+    }
+
+    /** Public entry point for anything outside the SAY:/DO: parsing loop that wants to speak a line the same way (logged to ChatHistory + synthesized via Piper) -- TaskOrchestrator/Micromanager use this for a planned step's own "say" text. */
+    public static void sayAloud(String text) {
+        ChatHistory.logBotResponse(text);
+        speak(text);
     }
 
     private static void speak(String text) {

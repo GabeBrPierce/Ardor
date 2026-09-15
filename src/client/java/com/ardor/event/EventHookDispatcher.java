@@ -114,6 +114,17 @@ public final class EventHookDispatcher {
             if (taskText == null || taskText.isBlank()) return;
 
             StatusIndicator.show("Chat phrase matched -> " + taskText);
+            if (taskText.startsWith("script:")) {
+                String scriptName = taskText.substring("script:".length()).trim();
+                try {
+                    String source = com.ardor.script.ScriptStore.load(scriptName);
+                    com.ardor.script.ScriptEngine.run(source, scriptName, error ->
+                            Minecraft.getInstance().execute(() -> StatusIndicator.show("Chat phrase script '" + scriptName + "' failed: " + error)));
+                } catch (RuntimeException e) {
+                    StatusIndicator.show("Chat phrase -> script '" + scriptName + "' failed to load: " + e.getMessage());
+                }
+                return;
+            }
             TaskPlanner.plan(taskText)
                     .thenAccept(tasks -> Minecraft.getInstance().execute(() -> runUrgent("OnChatPhrase", tasks)))
                     .exceptionally(err -> {
@@ -131,6 +142,23 @@ public final class EventHookDispatcher {
         if (taskText == null || taskText.isBlank()) return;
 
         StatusIndicator.show("Event " + eventId + " -> " + taskText);
+
+        // "bind keys and other events to specific scripts" -- a bound task text of the form
+        // "script:<name>" runs that saved Lua script (com.ardor.script.ScriptStore/ScriptEngine)
+        // instead of going through the ascii-grammar/LLM-planner paths below. Checked first since
+        // "script:whatever" would never validly decode as ascii grammar anyway, but explicit is
+        // clearer than relying on that fallthrough.
+        if (taskText.startsWith("script:")) {
+            String scriptName = taskText.substring("script:".length()).trim();
+            try {
+                String source = com.ardor.script.ScriptStore.load(scriptName);
+                com.ardor.script.ScriptEngine.run(source, scriptName, error ->
+                        Minecraft.getInstance().execute(() -> StatusIndicator.show("Event " + eventId + " script '" + scriptName + "' failed: " + error)));
+            } catch (RuntimeException e) {
+                StatusIndicator.show("Event " + eventId + " -> script '" + scriptName + "' failed to load: " + e.getMessage());
+            }
+            return;
+        }
 
         // A bound task that's already valid ascii-grammar (e.g. "atk @e[category=hostile,...]
         // until:dead") skips the LLM entirely: there's no natural-language ambiguity to resolve, and

@@ -2,6 +2,7 @@ package com.ardor.game;
 
 import com.ardor.config.ArdorConfig;
 import com.ardor.pathing.AStarPathfinder;
+import com.ardor.region.RegionManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -158,9 +159,13 @@ public final class BlockWorldMovement implements AStarPathfinder.MovementModel {
         return isPassable(pos) || isBreakable(pos);
     }
 
+    /** "DisableImplicitDestruction -- disable the mod deciding 'we should break these blocks to get to the target'." Checked per-position (not once for the whole path) since a path can cross a region boundary mid-route. Only gates this INFERRED dig-through-obstacles decision, not an explicit mine/Break-Blocks-Within command. */
     private boolean isBreakable(BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        return !isHazard(state.getBlock()) && breakableBlocks.contains(state.getBlock());
+        if (!isHazard(state.getBlock()) && breakableBlocks.contains(state.getBlock())) {
+            return !RegionManager.get().hasFlag(RegionManager.currentProfileKey(), pos, r -> r.disableImplicitDestruction);
+        }
+        return false;
     }
 
     private boolean isPassable(BlockPos pos) {

@@ -59,6 +59,7 @@ public final class ArdorConfigScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, width, height, 0xC0101010);
+        g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
         super.extractRenderState(g, mouseX, mouseY, partialTick);
     }
 

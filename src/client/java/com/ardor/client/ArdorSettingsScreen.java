@@ -31,7 +31,14 @@ public final class ArdorSettingsScreen {
                 .setSavingRunnable(cfg::save);
         ConfigEntryBuilder eb = builder.entryBuilder();
 
+        // "The settings are barely visible -- add padding to the top of that list." Cloth Config's
+        // own list widget starts flush against the category-tab bar in this build, with the first
+        // entry's row overlapping/reading as clipped -- confirmed by nothing exposed for this on
+        // ConfigBuilder itself (no top-padding option, checked via javap). A blank text-description
+        // entry as row 0 of every category is Cloth Config's own standard workaround for exactly
+        // this (it renders as an empty row, pushing every real entry down by one row height).
         ConfigCategory llm = builder.getOrCreateCategory(Component.literal("LLM"));
+        padTop(eb, llm);
         llm.addEntry(eb.startStringDropdownMenu(Component.literal("Provider"), cfg.llmProvider)
                 .setSelections(Arrays.stream(LlmProvider.values()).map(Enum::name).toList())
                 .setTooltip(Component.literal("Picks the default Base URL/Model below when those are left blank. LOCAL = a llama-server you run yourself; the rest are cloud APIs and need an API Key."))
@@ -66,7 +73,41 @@ public final class ArdorSettingsScreen {
                 .setSaveConsumer(v -> cfg.wakeWord = v)
                 .build());
 
+        // "All should be configurable. We should be able to pick what model" -- the planner (goal ->
+        // plain-English steps, TaskPlanner.planSteps) is independently configurable from the LLM
+        // category above (the micromanager role: one step's text -> ascii commands). Every field
+        // here blank = inherit the LLM category's config entirely, so this only needs touching if
+        // the two roles should actually point at different models/backends.
+        ConfigCategory planner = builder.getOrCreateCategory(Component.literal("Planner"));
+        padTop(eb, planner);
+        planner.addEntry(eb.startStrField(Component.literal("Provider"), cfg.plannerProvider)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("One of " + Arrays.toString(Arrays.stream(LlmProvider.values()).map(Enum::name).toArray()) + ". Blank = inherit the LLM category's Provider/Base URL/Model entirely."))
+                .setSaveConsumer(v -> cfg.plannerProvider = v)
+                .build());
+        planner.addEntry(eb.startStrField(Component.literal("Base URL"), cfg.plannerBaseUrl)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Blank = use Provider's default, or the LLM category's Base URL if Provider above is also blank."))
+                .setSaveConsumer(v -> cfg.plannerBaseUrl = v)
+                .build());
+        planner.addEntry(eb.startStrField(Component.literal("API Key"), cfg.plannerApiKey)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Blank = use the LLM category's API Key."))
+                .setSaveConsumer(v -> cfg.plannerApiKey = v)
+                .build());
+        planner.addEntry(eb.startStrField(Component.literal("Model"), cfg.plannerModel)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Blank = use Provider's default, or the LLM category's Model if Provider above is also blank."))
+                .setSaveConsumer(v -> cfg.plannerModel = v)
+                .build());
+        planner.addEntry(eb.startStrField(Component.literal("Reasoning Effort"), cfg.plannerReasoningEffort)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Blank = use the LLM category's Reasoning Effort."))
+                .setSaveConsumer(v -> cfg.plannerReasoningEffort = v)
+                .build());
+
         ConfigCategory localServer = builder.getOrCreateCategory(Component.literal("Local LLM Server"));
+        padTop(eb, localServer);
         localServer.addEntry(eb.startBooleanToggle(Component.literal("Auto-start"), cfg.llmAutoStart)
                 .setDefaultValue(false)
                 .setTooltip(Component.literal("Only takes effect when Provider (in LLM) is LOCAL. Launches Server Executable with Model Path on client start."))
@@ -89,6 +130,7 @@ public final class ArdorSettingsScreen {
                 .build());
 
         ConfigCategory voice = builder.getOrCreateCategory(Component.literal("Voice"));
+        padTop(eb, voice);
         voice.addEntry(eb.startStrField(Component.literal("Whisper Binary Path"), cfg.whisperBinaryPath)
                 .setSaveConsumer(v -> cfg.whisperBinaryPath = v)
                 .build());
@@ -103,6 +145,7 @@ public final class ArdorSettingsScreen {
                 .build());
 
         ConfigCategory session = builder.getOrCreateCategory(Component.literal("Session"));
+        padTop(eb, session);
         session.addEntry(eb.startLongField(Component.literal("Max Session Bytes"), cfg.maxSessionBytes)
                 .setDefaultValue(5_000_000L)
                 .setMin(0L)
@@ -115,12 +158,14 @@ public final class ArdorSettingsScreen {
                 .build());
 
         ConfigCategory pathfinding = builder.getOrCreateCategory(Component.literal("Pathfinding"));
+        padTop(eb, pathfinding);
         pathfinding.addEntry(eb.startStrList(Component.literal("Breakable Blocks"), new ArrayList<>(cfg.breakableBlocks))
                 .setTooltip(Component.literal("Block ids the bot may dig through to reach an otherwise-unreachable mine target."))
                 .setSaveConsumer(v -> cfg.breakableBlocks = List.copyOf(v))
                 .build());
 
         ConfigCategory bridge = builder.getOrCreateCategory(Component.literal("Agent & Bridge"));
+        padTop(eb, bridge);
         bridge.addEntry(eb.startBooleanToggle(Component.literal("Agent Enabled"), cfg.agentEnabled)
                 .setDefaultValue(true)
                 .setSaveConsumer(v -> cfg.agentEnabled = v)
@@ -139,7 +184,17 @@ public final class ArdorSettingsScreen {
                 .setMin(1).setMax(65535)
                 .setSaveConsumer(v -> cfg.bridgePort = v)
                 .build());
+        bridge.addEntry(eb.startStrField(Component.literal("Companion Launcher Path"), cfg.companionLauncherPath)
+                .setDefaultValue("")
+                .setTooltip(Component.literal("Path to Ardor-Companion's generated launcher script, e.g. ...\\Ardor-Companion\\build\\install\\ardor-companion\\bin\\ardor-companion.bat. Blank = the Companion UI button can't start it for you."))
+                .setSaveConsumer(v -> cfg.companionLauncherPath = v)
+                .build());
 
         return builder.build();
+    }
+
+    /** Blank row-0 spacer -- see the "barely visible" comment above create()'s first category. */
+    private static void padTop(ConfigEntryBuilder eb, ConfigCategory category) {
+        category.addEntry(eb.startTextDescription(Component.literal(" ")).build());
     }
 }

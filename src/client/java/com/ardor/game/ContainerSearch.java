@@ -2,11 +2,15 @@ package com.ardor.game;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.Container;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.function.Predicate;
 
 /**
@@ -53,6 +57,33 @@ public final class ContainerSearch {
     public static Container asContainer(Level level, BlockPos pos) {
         BlockEntity be = level.getBlockEntity(pos);
         return be instanceof Container c ? c : null;
+    }
+
+    /**
+     * The real, network-synced contents of whatever container menu is CURRENTLY open, excluding
+     * the player's own inventory/hotbar slots -- the ONLY way to see a physical container's actual
+     * items client-side. Confirmed via javap against the real 26.1.2 client/common jars: neither
+     * BaseContainerBlockEntity nor RandomizableContainerBlockEntity (chests' own base classes)
+     * override getUpdateTag, so a chest's item list is never included in ordinary block-entity
+     * sync (chunk load, block update) -- and the CLIENT-side menu factory a container's MenuType
+     * calls when the open-screen packet arrives (e.g. ChestMenu.threeRows(int, Inventory), no
+     * Container argument) builds its OWN throwaway Container for the synced items rather than
+     * reusing the real BlockEntity at that position. So level.getBlockEntity(pos)'s own item list
+     * is -- and always was -- empty for a chest the client hasn't currently got open, regardless of
+     * how long a delay is added before reading it. See ContainerCache's own doc for how this gates
+     * when PHYSICAL sources can actually be (re)cached.
+     *
+     * Works for any container menu type, not just chests: Slot.container is whatever real Container
+     * object backs that specific slot, so filtering out slots backed by the player's own Inventory
+     * leaves exactly the opened container's own slots, in order, regardless of which MenuType it is.
+     */
+    public static List<ItemStack> openMenuContents(AbstractContainerMenu menu, Container playerInventory) {
+        List<ItemStack> out = new ArrayList<>();
+        for (Slot slot : menu.slots) {
+            if (slot.container == playerInventory) continue;
+            out.add(slot.getItem());
+        }
+        return out;
     }
 
     private static boolean containerHasMatch(Level level, BlockPos pos, Predicate<ItemStack> match) {

@@ -1,5 +1,6 @@
 package com.ardor.game;
 
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -10,9 +11,9 @@ import net.minecraft.world.phys.Vec2;
 /**
  * "I want to add a social protocol where we crouch rapidly jump up and down and move left and
  * right while facing players who are not attacking us." A lightweight greeting gesture, not an
- * LLM-planned task -- runs the same always-on tick-check pattern as the defend-on-attack event
- * (see RegionManager.ensureDefaultDefendBinding), but for the opposite situation: a peaceful
- * nearby player instead of a hostile mob.
+ * LLM-planned task -- runs the same always-on tick-check pattern as the defend-on-attack reflex
+ * (see RegionCombatController), but for the opposite situation: a peaceful nearby player instead
+ * of a hostile mob.
  *
  * "Not attacking us" is approximated the same way the defend event has to (see
  * SelectorResolver's category=hostile javadoc): there's no real attacker-identity capture
@@ -39,6 +40,11 @@ public final class SocialGreetingController {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(SocialGreetingController::onTick);
+        ArdorMasterToggle.register(SocialGreetingController::cancel);
+    }
+
+    public static void cancel() {
+        stopGreeting();
     }
 
     private static void onTick(Minecraft client) {
@@ -52,6 +58,7 @@ public final class SocialGreetingController {
 
     private static void tickInner(Minecraft client) {
         tick++;
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer self = client.player;
         if (self == null || client.level == null) {
             stopGreeting();

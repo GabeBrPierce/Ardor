@@ -175,8 +175,7 @@ final class BridgeActionHandlers {
     }
 
     private static void selectHotbarSlot(LocalPlayer player, int slot) {
-        Inventory inv = player.getInventory();
-        if (Inventory.isHotbarSlot(slot)) inv.setSelectedSlot(slot);
+        if (Inventory.isHotbarSlot(slot)) com.ardor.game.HotbarUtil.selectSlot(player, slot);
     }
 
     private static InteractionHand handOf(String hand) {

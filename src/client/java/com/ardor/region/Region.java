@@ -30,6 +30,21 @@ public final class Region {
     public boolean excludeItemSources; // AutoSourceRecorder won't auto-register physical containers/cauldrons here
     public boolean excludeImplicitItemRetrieval; // PathfindingController.ensureToolFor won't search nearby containers for an existing tool here
     public boolean excludeImplicitItemManufacturing; // PathfindingController.ensureToolFor won't craft/smelt a tool from scratch here
+    // "Disable the mod deciding 'we should break these blocks to get to the target'" -- gates only
+    // IMPLICIT path-clearing decisions (BlockWorldMovement's dig-through-obstacles, Baritone's own
+    // allowBreak while pathing through this region -- see BaritoneRegionGate), never an explicit
+    // mine/Break-Blocks-Within command the user actually asked for.
+    public boolean disableImplicitDestruction;
+
+    // Region Behavior Settings: how aggressively the bot implicitly targets each entity category.
+    // Unlike the plain booleans above, null here means "inherit from parent" (Aggressiveness has no
+    // natural "unset" value of its own) -- see RegionManager.resolveAggressiveness for the "nearest
+    // wins" walk (region -> parent -> ... -> profile's global -> global profile's global), same
+    // shape resolveEventTask already uses, NOT hasFlag's OR-across-the-whole-chain shape (a 3-way
+    // setting needs a real "unset" state a raw boolean can't express).
+    public Aggressiveness passiveMobs;
+    public Aggressiveness hostileMobs;
+    public Aggressiveness players;
 
     public Region() {}
 

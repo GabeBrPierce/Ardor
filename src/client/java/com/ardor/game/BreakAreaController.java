@@ -14,7 +14,9 @@ import net.minecraft.world.phys.Vec3;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * "Break Blocks Within" from the Area Selection follow-up wheel -- enumerates every breakable,
@@ -49,6 +51,7 @@ public final class BreakAreaController {
     private static int totalCount;
     private static int brokenCount;
     private static BlockPos dumpTarget;
+    private static BlockPos returnPos;
 
     private BreakAreaController() {}
 
@@ -56,18 +59,89 @@ public final class BreakAreaController {
         return active;
     }
 
-    /** Non-air, breakable (getDestroySpeed >= 0 -- bedrock/barrier/etc. return negative) blocks within box, capped at MAX_BLOCKS. Used both for the real run and for the up-front capacity check. */
+    /** For QuestTrackerOverlay -- "it should ALWAYS display what's currently happening," including runs like this one that never go through TaskOrchestrator at all. {brokenCount, totalCount}. */
+    public static int totalCount() {
+        return totalCount;
+    }
+
+    public static int brokenCount() {
+        return brokenCount;
+    }
+
+    /**
+     * Non-air, breakable (getDestroySpeed >= 0 -- bedrock/barrier/etc. return negative) blocks
+     * within box, capped at MAX_BLOCKS. Used both for the real run and for the up-front capacity
+     * check.
+     *
+     * "We should NEVER try and dig straight down -- that was the first thing it did. We should
+     * excavate horizontally moving downwards, leaving stairs ascending to the top." Confirmed
+     * real: this used to just hand back BlockPos.betweenClosed's own raw scan order, with nothing
+     * ordering it by safety at all -- whatever that iteration order happened to put first (a
+     * column at one corner) is what got broken first, in order, which reads as "dug straight down"
+     * whenever that happened to be a vertical run. Now ordered top layer to bottom layer, each
+     * layer swept horizontally in full before the next one down starts -- since walkThenRun/
+     * queue-order IS execution order, this directly means the bot is never digging through
+     * un-cleared layers above to reach a deeper target; every layer above whatever it's currently
+     * breaking is already open air. A straight staircase (reservedStaircaseFloor) hugging one edge
+     * is reserved (skipped, left solid) so a walkable ramp back to the top survives the excavation
+     * instead of leaving a walled-in pit.
+     */
     public static List<BlockPos> enumerate(AABB box, Level level) {
         BlockPos min = BlockPos.containing(box.minX, box.minY, box.minZ);
         BlockPos max = BlockPos.containing(box.maxX, box.maxY, box.maxZ);
+        Set<BlockPos> reservedFloor = reservedStaircaseFloor(min, max);
+
+        // "We're moving very randomly -- I want it to follow [a continuous back-and-forth sweep]."
+        // Real gap, not just a cosmetic one: the old version always swept Z from min to max for
+        // EVERY x column, so after finishing one column it jumped all the way back across to the
+        // start of the next -- a plain raster scan, not a snake. walkThenRun/queue order IS
+        // execution/walking order (see this method's own doc), so that raster jump is exactly what
+        // read as "random" movement. Now a real boustrophedon: alternates Z direction each time X
+        // increments, so the walking path is one continuous back-and-forth sweep per layer with no
+        // backtracking, matching a real "mow the lawn" pattern.
         List<BlockPos> found = new ArrayList<>();
-        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
-            if (found.size() >= MAX_BLOCKS) break;
-            BlockState state = level.getBlockState(pos);
-            if (state.isAir() || state.getDestroySpeed(level, pos) < 0) continue;
-            found.add(pos.immutable());
+        for (int y = max.getY(); y >= min.getY(); y--) {
+            boolean forward = true;
+            for (int x = min.getX(); x <= max.getX(); x++) {
+                int zStart = forward ? min.getZ() : max.getZ();
+                int zEnd = forward ? max.getZ() : min.getZ();
+                int zStep = forward ? 1 : -1;
+                for (int z = zStart; forward ? z <= zEnd : z >= zEnd; z += zStep) {
+                    if (found.size() >= MAX_BLOCKS) return found;
+                    BlockPos pos = new BlockPos(x, y, z);
+                    if (reservedFloor.contains(pos)) continue;
+                    BlockState state = level.getBlockState(pos);
+                    if (state.isAir() || state.getDestroySpeed(level, pos) < 0) continue;
+                    found.add(pos);
+                }
+                forward = !forward;
+            }
         }
         return found;
+    }
+
+    /**
+     * A straight staircase hugging the min-Z edge, descending one Y level per block moved along
+     * +X, starting one level below the very top (the top layer itself is the starting surface, it
+     * needs no floor reserved under it). Reserves ONLY the floor (support) block under each step --
+     * the step tile itself and the headroom above it get cleared normally along with everything
+     * else in the volume, so what's left behind is a walkable ramp, not a separately-carved one.
+     * Capped by whichever runs out first, the area's height or its width -- a selection much
+     * taller than it is wide only gets a partial ramp; a genuinely honest limitation of a simple,
+     * unverified-without-a-live-test approach rather than a claim of a universally correct one
+     * (see TODO.md).
+     */
+    private static Set<BlockPos> reservedStaircaseFloor(BlockPos min, BlockPos max) {
+        Set<BlockPos> floor = new HashSet<>();
+        int height = max.getY() - min.getY() + 1;
+        int width = max.getX() - min.getX() + 1;
+        int steps = Math.min(height - 1, width);
+        for (int i = 0; i < steps; i++) {
+            int stepFloorY = max.getY() - 1 - i;
+            int stepX = min.getX() + i;
+            floor.add(new BlockPos(stepX, stepFloorY, min.getZ()));
+        }
+        return floor;
     }
 
     /** Rough go/no-go: each free inventory slot could hold up to a full stack, so freeSlots*64 is an optimistic upper bound on how many single-block drops fit -- not exact (real stack sizes vary by block), but enough to catch "this is obviously more than I can carry." */
@@ -97,6 +171,8 @@ public final class BreakAreaController {
         queue = new ArrayDeque<>(blocks);
         breaker = new BlockBreaker();
         dumpTarget = dumpTargetPos;
+        var player = Minecraft.getInstance().player;
+        returnPos = player != null ? player.blockPosition() : null; // "pathfind back to the place where the request to dig was" once done -- see finishRun's own doc
         StatusIndicator.show("Breaking " + totalCount + " block(s)...");
         next();
     }
@@ -105,6 +181,7 @@ public final class BreakAreaController {
         active = false;
         queue.clear();
         dumpTarget = null;
+        returnPos = null;
         if (breaker != null) breaker.cancel();
     }
 
@@ -182,6 +259,7 @@ public final class BreakAreaController {
         if (pos == null) {
             active = false;
             StatusIndicator.show("Broke " + brokenCount + "/" + totalCount + " block(s).");
+            finishRun();
             return;
         }
 
@@ -192,6 +270,26 @@ public final class BreakAreaController {
         }
         Block type = level.getBlockState(pos).getBlock();
         PathfindingController.ensureToolFor(type, () -> walkAndBreak(pos));
+    }
+
+    /**
+     * "Pathfind back to where the dig request was made, or to the chest we're using -- and if we
+     * can't find a way back up ourselves, use the stone we mined to build a stairway." Prefers the
+     * dump chest (the actual place materials need to end up) over the plain origin point when both
+     * are available. The "build a stairway if stuck" half needs no separate implementation: Baritone
+     * already only places blocks (pillaring) when a normal walking route doesn't exist, and
+     * BaritoneNav.configure now stocks cobblestone/cobbled deepslate -- the real drops from mining
+     * stone/deepslate -- as acceptable pillaring material alongside dirt, so this ONE walkThenRun
+     * call gets both "walk back" and "build a way up out of a deep pit if walking alone can't" for
+     * free, reusing Baritone's own path search rather than a hand-rolled staircase builder.
+     */
+    private static void finishRun() {
+        BlockPos target = dumpTarget != null ? dumpTarget : returnPos;
+        if (target == null) return;
+        StatusIndicator.show("Heading back to " + (dumpTarget != null ? "the storage container" : "where this started") + "...");
+        PathfindingController.walkThenRun(target, "couldn't path back to " + target + " after breaking the area",
+                () -> StatusIndicator.show("Back."),
+                failReason -> StatusIndicator.show("Finished breaking, but couldn't path back: " + failReason));
     }
 
     private static void walkAndBreak(BlockPos pos) {

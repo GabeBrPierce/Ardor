@@ -1,5 +1,6 @@
 package com.ardor.game;
 
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -65,6 +66,12 @@ public final class ArrowDodgeController {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(ArrowDodgeController::onTick);
+        ArdorMasterToggle.register(ArrowDodgeController::cancel);
+    }
+
+    public static void cancel() {
+        stopDodging();
+        stopBlocking();
     }
 
     private static void onTick(Minecraft client) {
@@ -78,6 +85,7 @@ public final class ArrowDodgeController {
     }
 
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer self = client.player;
         ClientLevel level = client.level;
         if (self == null || level == null) {

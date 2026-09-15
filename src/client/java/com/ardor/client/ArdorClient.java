@@ -8,14 +8,18 @@ import com.ardor.event.EventHookDispatcher;
 import com.ardor.game.ArrowDodgeController;
 import com.ardor.game.AutoEatController;
 import com.ardor.game.AutoFleeController;
+import com.ardor.game.BaritoneAutoToolController;
 import com.ardor.game.BaritoneFacingController;
+import com.ardor.game.BaritoneRegionGate;
 import com.ardor.game.DrowningSafetyController;
+import com.ardor.game.MovementVarianceController;
 import com.ardor.game.ParryController;
-import com.ardor.game.ProactiveCombatController;
+import com.ardor.game.RegionCombatController;
 import com.ardor.game.SleepController;
 import com.ardor.game.SocialGreetingController;
 import com.ardor.llm.LlmServerManager;
 import com.ardor.region.RegionManager;
+import com.ardor.struct.PlacementRecorder;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import org.slf4j.Logger;
@@ -38,7 +42,6 @@ public class ArdorClient implements ClientModInitializer {
         AgentControlChannel.register();
         RegionCommands.register();
         EventHookDispatcher.register();
-        RegionManager.get().ensureDefaultDefendBinding();
         PickWheelKey.register();
         SingleSelectionOverlay.register();
         LlmServerManager.register();
@@ -50,12 +53,29 @@ public class ArdorClient implements ClientModInitializer {
         AutoFleeController.register();
         ArrowDodgeController.register();
         SleepController.register();
-        ProactiveCombatController.register();
+        RegionCombatController.register();
         ParryController.register();
         DrowningSafetyController.register();
         BaritoneFacingController.register();
+        BaritoneRegionGate.register();
+        BaritoneAutoToolController.register();
         AutoSourceRecorder.register();
         FetchItemsKey.register();
+        MovementVarianceController.register();
+        StructCommands.register();
+        ScriptCommands.register();
+        HomeCommands.register();
+        ScriptWheelCommands.register();
+        ScriptWheelKey.register();
+        ScriptKeybindCommands.register();
+        ScriptKeybinds.register();
+        TaskPlannerKey.register();
+        PanicStopKey.register();
+        PanicStopCommand.register();
+        PauseToggleKey.register();
+        ArdorMasterToggleKey.register();
+        QuestTrackerOverlay.register();
+        PlacementRecorder.register();
 
         // Xaero's World Map integration (com.ardor.xaero.*) needs no explicit call here --
         // RegionChunkHighlighter gets registered automatically by RegisterHighlighterMixin, which

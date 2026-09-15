@@ -12,6 +12,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -20,13 +21,13 @@ import java.util.List;
  * Blocks Within" / "Kill Hostile Mobs" follow-up wheel over the captured area. Mutually exclusive
  * with SingleSelectionMode (starting one stops the other) since both hook the same tap gesture.
  *
- * Radius mode: a SQUARE centered on the PLAYER (not a circle), sized by scroll (same
- * ClientHotbarScrollEvents.ALLOW hook SingleSelectionMode's hologram distance uses), with an
- * aspect ratio that shifts by look pitch -- looking straight up/down (|pitch| near 90) expands the
- * vertical extent, looking level (|pitch| near 0) expands the horizontal extent, blended linearly
- * between the two. This is a literal reading of a loose verbal spec ("looking up/down expand
- * vertically... looking more toward the sides expand horizontally") -- adjust computeRadiusBox's
- * math if the feel is wrong once tested live.
+ * Radius mode: a SQUARE centered on the PLAYER (not a circle), with independent horizontal
+ * (halfXZ) and vertical (halfY) half-extents -- scrolling adjusts ONE of them, chosen by whatever
+ * the player's pitch is AT THE MOMENT OF SCROLLING (VERTICAL_PITCH_THRESHOLD): looking up/down
+ * steeply and scrolling grows/shrinks the vertical extent only; looking more level and scrolling
+ * grows/shrinks the horizontal extent only. "It should only expand up/down if I look up/down AND
+ * scroll" -- just looking around (without scrolling) no longer reshapes the box at all, unlike the
+ * original continuous-pitch-blend version this replaced.
  *
  * Corners mode: two sequential taps, each picking a point via GroundAlignedTargeting -- the exact
  * same scroll-adjustable, ground-aligned targeting logic Single Selection's hologram uses (per
@@ -44,18 +45,26 @@ public final class AreaSelectionMode {
     private static final double MIN_RADIUS = 2.0;
     private static final double MAX_RADIUS = 48.0;
     private static final double MIN_HALF_EXTENT = 2.0; // never collapse to a pancake/needle
+    private static final float VERTICAL_PITCH_THRESHOLD = 45f; // |pitch| beyond this counts as "looking up/down" for scroll routing
 
     private static volatile boolean active;
     private static boolean tickerRegistered;
     private static boolean scrollHookRegistered;
 
     private static Mode mode;
-    private static double radius = DEFAULT_RADIUS;
+    // "It should only expand up/down if I look up/down AND scroll" -- two INDEPENDENT half-extents
+    // instead of one radius blended continuously by whatever pitch happens to be at render time
+    // (the old behavior: just looking around, without touching the scroll wheel at all, reshaped
+    // the box every tick). Scrolling picks which one to adjust, based on pitch AT THE MOMENT OF
+    // SCROLLING (ensureScrollHook) -- looking around afterward no longer changes the box at all.
+    private static double halfXZ = DEFAULT_RADIUS;
+    private static double halfY = MIN_HALF_EXTENT;
     private static double cornerDistance;
     private static CornerPhase cornerPhase;
     private static BlockPos corner1;
 
     private static AABB previewBox;
+    private static List<String> overlayLines = List.of();
 
     private AreaSelectionMode() {}
 
@@ -71,7 +80,8 @@ public final class AreaSelectionMode {
     public static void startRadius() {
         SingleSelectionMode.stop();
         mode = Mode.RADIUS;
-        radius = DEFAULT_RADIUS;
+        halfXZ = DEFAULT_RADIUS;
+        halfY = MIN_HALF_EXTENT;
         active = true;
         ensureTicker();
         ensureScrollHook();
@@ -151,11 +161,10 @@ public final class AreaSelectionMode {
     }
 
     /**
-     * No rename UI exists anywhere in this codebase (only RegionListScreen's create-with-typed-
-     * name and RegionEditScreen's bounds/parent/flags editor) -- auto-generates "area_N" and opens
-     * RegionEditScreen straight away so bounds/parent/flags are still editable, same flow
-     * RegionListScreen.onNew() already uses for its own player-centered default region. See
-     * TODO.md for the naming gap.
+     * Auto-generates "area_N" and opens RegionEditScreen straight away so bounds/parent/flags are
+     * still editable there -- same flow RegionListScreen.onNew() already uses for its own
+     * player-centered default region. The auto-generated name isn't final: RegionEditScreen's own
+     * Name field can rename it to something more meaningful afterward.
      */
     private static void setAsRegion(AABB box) {
         String profileKey = RegionManager.currentProfileKey();
@@ -222,7 +231,13 @@ public final class AreaSelectionMode {
         ClientHotbarScrollEvents.ALLOW.register((inventory, oldSlot, newSlot, scrollX, scrollY) -> {
             if (!active) return true;
             if (mode == Mode.RADIUS) {
-                radius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, radius + scrollY));
+                LocalPlayer player = Minecraft.getInstance().player;
+                float pitch = player != null ? player.getXRot() : 0f;
+                if (Math.abs(pitch) >= VERTICAL_PITCH_THRESHOLD) {
+                    halfY = Math.max(MIN_HALF_EXTENT, Math.min(MAX_RADIUS, halfY + scrollY));
+                } else {
+                    halfXZ = Math.max(MIN_HALF_EXTENT, Math.min(MAX_RADIUS, halfXZ + scrollY));
+                }
             } else {
                 cornerDistance = Math.max(GroundAlignedTargeting.MIN_DISTANCE, Math.min(GroundAlignedTargeting.MAX_DISTANCE, cornerDistance + scrollY));
             }
@@ -239,7 +254,8 @@ public final class AreaSelectionMode {
         }
 
         if (mode == Mode.RADIUS) {
-            previewBox = computeRadiusBox(player, radius);
+            previewBox = computeRadiusBox(player);
+            overlayLines = buildRadiusOverlayLines(player, previewBox);
             return;
         }
 
@@ -247,21 +263,50 @@ public final class AreaSelectionMode {
         BlockPos current = currentCornerTarget();
         if (current == null) {
             previewBox = null;
+            overlayLines = List.of();
             return;
         }
         previewBox = cornerPhase == CornerPhase.PICK_FIRST || corner1 == null
                 ? new AABB(current)
                 : new AABB(corner1.getX(), corner1.getY(), corner1.getZ(), current.getX() + 1, current.getY() + 1, current.getZ() + 1);
+        overlayLines = buildCornersOverlayLines(previewBox);
     }
 
-    private static AABB computeRadiusBox(LocalPlayer player, double radius) {
-        float pitch = player.getXRot(); // -90 (straight up) .. 90 (straight down), 0 = level
-        double verticalFactor = Math.abs(pitch) / 90.0;
-        double horizontalFactor = 1.0 - verticalFactor;
-        double halfY = Math.max(MIN_HALF_EXTENT, radius * verticalFactor);
-        double halfXZ = Math.max(MIN_HALF_EXTENT, radius * horizontalFactor);
+    private static AABB computeRadiusBox(LocalPlayer player) {
         Vec3 center = player.position();
         return new AABB(center.x - halfXZ, center.y - halfY, center.z - halfXZ,
                 center.x + halfXZ, center.y + halfY, center.z + halfXZ);
+    }
+
+    /** "The area selector needs to show the same kind of WAILA display Single Selection does -- the size of the area and the position of the first point." Radius mode has no distinct "first point" (it's centered on the player), so the closest analogous line is the center position. */
+    private static List<String> buildRadiusOverlayLines(LocalPlayer player, AABB box) {
+        List<String> lines = new ArrayList<>();
+        lines.add("Area Selection: Radius");
+        lines.add(sizeLine(box));
+        BlockPos center = player.blockPosition();
+        lines.add("Center: " + center.getX() + ", " + center.getY() + ", " + center.getZ());
+        return lines;
+    }
+
+    private static List<String> buildCornersOverlayLines(AABB box) {
+        List<String> lines = new ArrayList<>();
+        lines.add("Area Selection: Corners");
+        lines.add(sizeLine(box));
+        if (corner1 != null) {
+            lines.add("First corner: " + corner1.getX() + ", " + corner1.getY() + ", " + corner1.getZ());
+        }
+        return lines;
+    }
+
+    private static String sizeLine(AABB box) {
+        int sizeX = (int) Math.round(box.maxX - box.minX);
+        int sizeY = (int) Math.round(box.maxY - box.minY);
+        int sizeZ = (int) Math.round(box.maxZ - box.minZ);
+        return "Size: " + sizeX + " x " + sizeY + " x " + sizeZ;
+    }
+
+    /** WAILA-style overlay text (see SingleSelectionOverlay, which renders this alongside its own when Single Selection isn't the one active) -- empty if inactive or nothing to show yet. */
+    public static List<String> overlayLines() {
+        return active ? overlayLines : List.of();
     }
 }

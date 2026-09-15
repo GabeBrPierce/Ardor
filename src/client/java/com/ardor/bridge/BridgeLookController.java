@@ -1,5 +1,6 @@
 package com.ardor.bridge;
 
+import com.ardor.client.ArdorMasterToggle;
 import com.ardor.game.RotationUtil;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
@@ -29,6 +30,7 @@ public final class BridgeLookController {
         if (registered) return;
         registered = true;
         ClientTickEvents.END_CLIENT_TICK.register(BridgeLookController::tick);
+        ArdorMasterToggle.register(BridgeLookController::clear);
     }
 
     public static void setTarget(double x, double y, double z, float degPerTick) {
@@ -54,6 +56,7 @@ public final class BridgeLookController {
     }
 
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer player = client.player;
         Double x = targetX, y = targetY, z = targetZ;
         if (player == null || x == null || y == null || z == null) return;
