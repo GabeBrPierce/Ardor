@@ -29,7 +29,16 @@ final class ScriptDocsContent {
 
                 This screen is a reference, not a Lua tutorial -- if you've never used Lua before, any \
                 general Lua 5.1 guide covers the syntax (LuaJ implements 5.1 semantics); everything \
-                specific to Ardor is documented here."""),
+                specific to Ardor is documented here.
+
+                The editor itself helps while you type: a small popup shows a function's parameters \
+                as you fill in its arguments (see Documenting Your Own Functions below for making your \
+                own functions do this too), Tab completes a known name, and a status line at the \
+                bottom-left continuously reports whether the script currently parses as valid Lua --
+                "Syntax OK", or "Line N: ..." naming the problem. That status is a real parse of the \
+                whole script, so it will read as broken while you're mid-way through typing an \
+                incomplete line (an unclosed bracket, say) -- normal, and it clears the moment the \
+                line is finished, same as any code editor."""),
 
         new Section("globals", "Persistent State", """
                 Every script runs against ONE shared Lua environment for the whole client session -- \
@@ -305,6 +314,28 @@ final class ScriptDocsContent {
                 the in-game chat or action bar.
 
                 > saveToLogs("reached waypoint 3", "patrol")"""),
+
+        new Section("doccomments", "Documenting Your Own Functions", """
+                A plain comment block directly above your own function definition (no blank line in \
+                between) gives it the same parameter-hint popup the built-in functions get while \
+                you're typing a call to it elsewhere in the script. The first line becomes the \
+                one-line description; any "-- @param name description" lines are shown as per-\
+                parameter notes.
+
+                > --- Walks to the nearest configured home and waits for arrival.
+                > -- @param fallback name to use if "base" isn't defined
+                > function goHome(fallback)
+                >     home(fallback or "base")
+                > end
+
+                Typing goHome( anywhere later in the same script now shows that description and \
+                parameter note, exactly like typing kill( shows kill's own.
+
+                This only recognizes plain top-level definitions -- function name(...) or local \
+                function name(...). Table/method-style definitions (function T.name(...), \
+                function T:name(...)) aren't picked up. There's no tag for a return value or for \
+                multiple parameters beyond repeating @param once per line -- keep the description \
+                itself short, since the popup wraps to a fixed width."""),
 
         new Section("reference", "Full Function Reference", """
                 Quick alphabetical list -- see the sections above for details on each.

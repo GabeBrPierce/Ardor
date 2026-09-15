@@ -129,6 +129,20 @@ public final class ScriptEngine {
         }
     }
 
+    /**
+     * Compiles `source` without running it (LuaJ's own real parser, not a hand-rolled checker --
+     * accurate, no false positives) -- for ScriptEditScreen's live syntax status. Null if it
+     * compiles cleanly; otherwise LuaJ's own error message, typically "chunkname:LINE: message".
+     */
+    public static String checkSyntax(String source) {
+        try {
+            globals().load(source, "syntax-check");
+            return null;
+        } catch (LuaError e) {
+            return e.getMessage();
+        }
+    }
+
     /** Cancels EVERY running script, not one handle -- simplest reading of "//ardor script stop" now that several can be in flight. Can't forcibly unwind a suspended coroutine (LuaJ has no hard kill); dropping the reference just means it's never resumed again. */
     public static void cancel() {
         RUNNING.clear();

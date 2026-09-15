@@ -3,6 +3,43 @@
 Convention: this file lists only currently open work -- stubbed features, deferred asks, and known
 unfixed bugs. Entries are removed once resolved; resolved history lives in git/session logs, not here.
 
+## ScriptEditScreen: parameter-hint popup, doc-comments for user functions, live syntax status (2026-09-15)
+
+- **Parameter-hint tooltip.** New `LuaSignatures` (built-in function/method signatures + one-line
+  descriptions, condensed from ScriptDocsContent) and `activeCall()` (reuses `LuaHighlighter`'s
+  tokenizer to walk the current line up to the cursor, tracking a stack of open calls so nested
+  calls like `kill(queryEntity("zombie", 10))` resolve to the right one) together drive a small
+  popup near the cursor while typing a call's arguments, with the current parameter picked out.
+  Only looks at the current LINE -- a call whose `(` was opened on an earlier line won't show a
+  popup. **Not live-tested.**
+- **User functions get the same popup.** New `LuaDocComments` parses a comment block written
+  directly above a plain `function name(...)` / `local function name(...)` definition (first line =
+  description, `-- @param name text` lines = per-parameter notes -- documented in the new
+  "Documenting Your Own Functions" section of the in-mod reference) into the same lookup, checked
+  before the built-in table so a same-named user function wins. Table/method-style definitions
+  (`function T.name(...)`, `function T:name(...)`) aren't recognized -- would need a real
+  identifier-chain parse, not attempted. **Not live-tested.**
+- **Live syntax status.** New `ScriptEngine.checkSyntax(source)` compiles (never runs) the current
+  text against LuaJ's real parser on every edit and the result is shown continuously bottom-left --
+  "Syntax OK" or "Line N: <LuaJ's own message>". Deliberately limited to real syntax errors, not a
+  broader lint (unknown-global calls, unused locals, etc.) -- those need real static analysis to
+  avoid false positives on legitimate dynamic Lua, and a wrong warning is worse than no warning; a
+  real parse has none of that risk. Reads as broken while mid-way through typing an incomplete line,
+  same as any real editor's live diagnostics -- not a bug, clears once the line is finished.
+- **Found and fixed a real, pre-existing bug while extending this file**: `handleTab()`'s own
+  `insertText()` call fired the SAME `setValueListener` used for ordinary typed input, which called
+  `resetCompletion()` as a side effect -- immediately erasing the completion state `handleTab()` had
+  just set up one line earlier. Tab-completion cycling (pressing Tab again to move to the next
+  match) could never have worked, since by the time a second Tab press checked `completionStart`,
+  the first press's own insert had already nulled it back out. Fixed by moving `resetCompletion()`
+  out of the listener and keeping it only at the real "this is new user input" entry points
+  (`keyPressed` for non-Tab keys, `charTyped`, `mouseClicked`) that already called it. The actual text insertion on a first
+  Tab press was unaffected (insertText mutates the field before the listener fires) -- only the
+  bookkeeping was wrong, so the "Tab: 1/N" status footer never showed and a second Tab press
+  restarted a fresh completion attempt from scratch instead of cycling. Worth confirming live that
+  cycling now actually advances through the match list, not just that a single Tab-complete still
+  inserts correctly (which it always did).
+
 ## Lua API: four deliberate approximations in the new ScriptEngine surface (2026-09-15)
 
 `script/ScriptEngine.java` grew a large bound API this pass (shared session-persistent Globals,

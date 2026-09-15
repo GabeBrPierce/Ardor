@@ -1,5 +1,6 @@
 package com.ardor.client;
 
+import com.ardor.script.ScriptEngine;
 import com.ardor.script.ScriptStore;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -11,10 +12,17 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 import org.lwjgl.glfw.GLFW;
 
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Lua source editor for one script, opened from ScriptListScreen. Syntax-colored (LuaHighlighter)
@@ -41,6 +49,10 @@ public final class ScriptEditScreen extends Screen {
     private Integer completionStart;
     private List<String> completionMatches = List.of();
     private int completionIndex;
+
+    private Map<String, LuaSignatures.FunctionDoc> userFunctions = Map.of();
+    private String syntaxError;
+    private static final Pattern SYNTAX_ERROR_LINE = Pattern.compile("^[^:]*:(\\d+):\\s*(.*)$", Pattern.DOTALL);
 
     // MultilineTextField.getLineView/getSelected return StringView, which Mojang's own bytecode
     // marks `protected` as a MEMBER of MultilineTextField (see the InnerClasses attribute -- its
@@ -91,7 +103,14 @@ public final class ScriptEditScreen extends Screen {
         // learned about re-seeding from a source of truth on every rebuild.
         textField = new MultilineTextField(font, width - EDITOR_LEFT - 10);
         textField.setValue(source);
-        textField.setValueListener(v -> { source = v; resetCompletion(); });
+        recomputeDerived(source);
+        // Deliberately NOT resetCompletion() here -- handleTab()'s own insertText() call fires this
+        // same listener as a side effect, which would immediately erase the completion state
+        // handleTab had just set up one line earlier. keyPressed/charTyped/mouseClicked already call
+        // resetCompletion() themselves at the actual "this is new user input" points; a value change
+        // that arrives via this listener without one of those having run first is handleTab's own
+        // programmatic edit, not new input, and shouldn't cancel the cycle it's mid-way through.
+        textField.setValueListener(v -> { source = v; recomputeDerived(v); });
 
         addRenderableWidget(Button.builder(Component.literal("Help"), b -> onHelp())
                 .bounds(width - 190, 10, 55, 20).build());
@@ -121,6 +140,12 @@ public final class ScriptEditScreen extends Screen {
     private void resetCompletion() {
         completionStart = null;
         completionMatches = List.of();
+    }
+
+    /** Re-parses on every edit: cheap at the script sizes this editor sees, and correctness (an up to date lint/tooltip) matters more than shaving a recompute that only costs microseconds. */
+    private void recomputeDerived(String v) {
+        userFunctions = LuaDocComments.parse(v);
+        syntaxError = ScriptEngine.checkSyntax(v);
     }
 
     // ------------------------------------------------------------------ input
@@ -199,6 +224,88 @@ public final class ScriptEditScreen extends Screen {
 
     private static boolean isWordChar(char c) {
         return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    // ------------------------------------------------------------------ signature help
+
+    private record CallInfo(String name, int argIndex) {}
+
+    /**
+     * Which function call (if any) the cursor is currently inside, and which argument position --
+     * for the parameter-hint tooltip. Reuses LuaHighlighter's tokenizer (already handles strings/
+     * comments correctly) rather than a second hand-rolled scanner: walk the tokens on the current
+     * LINE up to the cursor, tracking a stack of open calls (name + running comma count), pushing a
+     * nameless entry for a plain grouping "(" so paren depth still balances when one appears. Only
+     * looks at the current line -- a call whose "(" was opened on an earlier line won't be detected.
+     */
+    // ArrayDeque rejects null elements outright, so a plain grouping "(" (not a call) pushes this
+    // sentinel instead of null -- still needed so paren depth balances correctly for the calls
+    // around it, e.g. "kill(queryEntity(" while typing "if (x) then kill(".
+    private static final String NOT_A_CALL = "\0";
+
+    private CallInfo activeCall() {
+        int cursor = textField.cursor();
+        Object lineView = textField.getLineView(textField.getLineAtCursor());
+        String upToCursor = source.substring(viewBegin(lineView), cursor);
+
+        Deque<String> names = new ArrayDeque<>();
+        Deque<int[]> argIndexes = new ArrayDeque<>();
+
+        List<LuaHighlighter.Segment> segments = LuaHighlighter.tokenize(upToCursor);
+        int i = 0;
+        while (i < segments.size()) {
+            String text = segments.get(i).text();
+            if (isIdentSeg(text)) {
+                StringBuilder name = new StringBuilder(text);
+                int j = i + 1;
+                while (j + 1 < segments.size() && segments.get(j).text().equals(".") && isIdentSeg(segments.get(j + 1).text())) {
+                    name.append('.').append(segments.get(j + 1).text());
+                    j += 2;
+                }
+                if (j < segments.size() && segments.get(j).text().equals("(")) {
+                    names.push(name.toString());
+                    argIndexes.push(new int[]{0});
+                    i = j + 1;
+                    continue;
+                }
+                i = j;
+                continue;
+            }
+            switch (text) {
+                case "(" -> { names.push(NOT_A_CALL); argIndexes.push(new int[]{0}); }
+                case ")" -> { if (!names.isEmpty()) { names.pop(); argIndexes.pop(); } }
+                case "," -> { if (!argIndexes.isEmpty()) argIndexes.peek()[0]++; }
+                default -> {}
+            }
+            i++;
+        }
+
+        if (names.isEmpty() || names.peek().equals(NOT_A_CALL)) return null;
+        return new CallInfo(names.peek(), argIndexes.peek()[0]);
+    }
+
+    private static boolean isIdentSeg(String text) {
+        char c = text.charAt(0);
+        return Character.isLetter(c) || c == '_';
+    }
+
+    private List<LuaHighlighter.Segment> signatureSegments(LuaSignatures.FunctionDoc doc, int argIndex) {
+        String sig = doc.signature();
+        int open = sig.indexOf('(');
+        int close = sig.lastIndexOf(')');
+        if (open < 0 || close < open) return List.of(new LuaHighlighter.Segment(sig, 0xFFDCDCAA));
+
+        List<LuaHighlighter.Segment> segs = new ArrayList<>();
+        segs.add(new LuaHighlighter.Segment(sig.substring(0, open + 1), 0xFFDCDCAA));
+        String inner = sig.substring(open + 1, close).strip();
+        String[] params = inner.isEmpty() ? new String[0] : inner.split(",\\s*");
+        for (int p = 0; p < params.length; p++) {
+            if (p > 0) segs.add(new LuaHighlighter.Segment(", ", 0xFF888888));
+            boolean active = p == Math.min(argIndex, params.length - 1);
+            segs.add(new LuaHighlighter.Segment(params[p], active ? 0xFFFFD700 : 0xFFAAAAAA));
+        }
+        segs.add(new LuaHighlighter.Segment(")", 0xFFDCDCAA));
+        return segs;
     }
 
     @Override
@@ -291,15 +398,74 @@ public final class ScriptEditScreen extends Screen {
             y += font.lineHeight;
         }
 
+        renderSyntaxStatus(g);
         if (lineCount > visible) {
             g.text(font, "Scroll for more.", 10, height - 14, 0xFF808080);
         }
-        g.text(font, statusLine, width / 2 - 60, height - 18, 0xFFAAAAAA);
+        g.text(font, statusLine, width / 2 - 60, height - 14, 0xFFAAAAAA);
         if (completionStart != null) {
-            g.text(font, "Tab: " + (completionIndex + 1) + "/" + completionMatches.size(), width - 200, height - 18, 0xFFDCDCAA);
+            g.text(font, "Tab: " + (completionIndex + 1) + "/" + completionMatches.size(), width - 200, height - 14, 0xFFDCDCAA);
         }
 
+        renderSignatureHelp(g);
+
         super.extractRenderState(g, mouseX, mouseY, partialTick);
+    }
+
+    private void renderSyntaxStatus(GuiGraphicsExtractor g) {
+        if (syntaxError == null) {
+            g.text(font, "Syntax OK", 10, height - 24, 0xFF6A9955);
+            return;
+        }
+        Matcher m = SYNTAX_ERROR_LINE.matcher(syntaxError);
+        String message = m.matches() ? "Line " + m.group(1) + ": " + m.group(2) : syntaxError;
+        g.text(font, message, 10, height - 24, 0xFFFF5555);
+    }
+
+    /**
+     * Small floating box near the cursor showing the signature of whatever function call it's
+     * currently inside, with the active parameter picked out -- checks the CURRENT script's own
+     * doc-commented functions (LuaDocComments) before the built-in API (LuaSignatures.BUILTIN), so
+     * a user's own function of the same name wins.
+     */
+    private void renderSignatureHelp(GuiGraphicsExtractor g) {
+        CallInfo call = activeCall();
+        if (call == null) return;
+        LuaSignatures.FunctionDoc doc = userFunctions.get(call.name());
+        if (doc == null) doc = LuaSignatures.BUILTIN.get(call.name());
+        if (doc == null) return;
+
+        List<LuaHighlighter.Segment> sigSegs = signatureSegments(doc, call.argIndex());
+        int sigWidth = sigSegs.stream().mapToInt(s -> font.width(s.text())).sum();
+        List<FormattedCharSequence> descLines = font.split(Component.literal(doc.description()), Math.max(150, sigWidth));
+
+        int boxWidth = sigWidth;
+        for (FormattedCharSequence line : descLines) boxWidth = Math.max(boxWidth, font.width(line));
+        int boxHeight = font.lineHeight + 3 + descLines.size() * (font.lineHeight + 1) + 4;
+
+        int cursorLine = textField.getLineAtCursor();
+        Object lineView = textField.getLineView(cursorLine);
+        int lineBegin = viewBegin(lineView);
+        int cx = EDITOR_LEFT + font.width(source.substring(lineBegin, textField.cursor()));
+        int lineScreenY = EDITOR_TOP + (cursorLine - scrollLine) * font.lineHeight;
+
+        int boxX = Math.max(4, Math.min(cx, width - boxWidth - 14));
+        int boxY = lineScreenY + font.lineHeight + 4;
+        if (boxY + boxHeight > height - FOOTER_H) boxY = lineScreenY - boxHeight - 2;
+
+        g.fill(boxX - 4, boxY - 3, boxX + boxWidth + 4, boxY + boxHeight, 0xF0202020);
+        g.fill(boxX - 4, boxY - 3, boxX + boxWidth + 4, boxY - 2, 0xFF569CD6);
+
+        int sx = boxX;
+        for (LuaHighlighter.Segment seg : sigSegs) {
+            g.text(font, seg.text(), sx, boxY, seg.color());
+            sx += font.width(seg.text());
+        }
+        int dy = boxY + font.lineHeight + 3;
+        for (FormattedCharSequence line : descLines) {
+            g.text(font, line, boxX, dy, 0xFFCCCCCC);
+            dy += font.lineHeight + 1;
+        }
     }
 
     @Override
