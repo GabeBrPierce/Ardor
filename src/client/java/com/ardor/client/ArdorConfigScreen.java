@@ -34,7 +34,10 @@ public final class ArdorConfigScreen extends Screen {
     protected void init() {
         clearWidgets();
         int x = width / 2 - BUTTON_WIDTH / 2;
-        int y = height / 2 - (BUTTON_HEIGHT * 7 + ROW_GAP * 6) / 2;
+        // Clamp instead of pure vertical centering: at a high GUI Scale (small logical height),
+        // centering alone pushed the first row (Settings) to a negative Y, clipped above the
+        // top edge -- barely visible/unreachable.
+        int y = Math.max(20, height / 2 - (BUTTON_HEIGHT * 7 + ROW_GAP * 6) / 2);
 
         y = addRow(x, y, "Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this)));
         y = addRow(x, y, "Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen()));
