@@ -47,22 +47,43 @@ on purpose, not oversights:
 - No encryption beyond the shared secret gating connections (`PeerServer.secretOk`) -- fine for a
   LAN, not designed to be exposed to the open internet.
 
-## ScriptEditScreen is plain text only -- highlighting/autocomplete deferred (2026-09-15)
+## ScriptEditScreen now syntax-highlighted with Tab-complete (2026-09-15)
 
-New `ScriptEditScreen` (Edit Script: <name>) wraps vanilla `MultiLineEditBox` -- MC 26.1.2 ships a
-real multi-line editable/scrollable text area (`MultilineTextField` behind
-`AbstractTextAreaWidget`), so nothing was hand-rolled: wrapping, selection, click/drag, word
-navigation, Home/End/PageUp/PageDown and clipboard all come from vanilla. Only Tab needed adding
-(`MultilineTextField.keyPressed` handles 12 keycodes, Tab isn't one of them) -- intercepted in
-`ScriptEditScreen.keyPressed` and turned into 4 space inserts.
+`ScriptEditScreen` no longer wraps vanilla `MultiLineEditBox` -- that widget renders every line in
+one flat `textColor` with no per-token hook, and its constructor is private so it can't be
+subclassed to add one. Rewritten to drive `MultilineTextField` directly instead (the actual editing
+engine underneath that widget -- cursor, selection, line wrap, `keyPressed` -- which IS public;
+only the widget WRAPPER around it is private), with rendering and scrolling handled here so each
+line can be tokenized (new `LuaHighlighter`: keywords/strings/comments/numbers/known API names,
+single-line lexical scan, no `--[[ ]]` block comments) and colored per-segment.
 
-- **No Lua syntax highlighting and no autocomplete**, deliberately scoped out of this first pass.
-  Vanilla's renderer draws each display line with a single flat `textColor`, so highlighting means
-  either a `FormattedCharSequence`-producing replacement for `extractContents` or dropping the
-  vanilla widget for a hand-rolled one -- neither attempted here.
-- **Shift-Tab dedent / block-indent of a multi-line selection not implemented.** Tab always inserts
-  4 spaces at the cursor (replacing the selection, if any), which is the vanilla insert semantics.
-- **Not live-tested.**
+Getting the cursor/selection manipulation right needed real bytecode verification, not
+documentation (there isn't any) -- three assumptions that looked reasonable turned out wrong on
+inspection: `getLineView`/`getSelected` return `StringView`, which Mojang's own `InnerClasses`
+table marks `protected` as a *member* of `MultilineTextField` even though the class file itself is
+public, so it can't be named as a type from this package (reflective `beginIndex()`/`endIndex()`
+handles instead); `deleteText(n)` forward-deletes from the cursor, not backward like Backspace,
+which is the wrong direction for removing a completion prefix; and `seekCursor` collapses the
+selection anchor to the new cursor position whenever `selecting` is false, so replacing a range
+needs `setSelecting(true)` bracketing the seek, not a bare `seekCursor` call. All confirmed via
+`javap -c` against the real 26.1.2 client jar before shipping, not guessed at.
+
+Tab now does two things depending on context: with a word-prefix immediately before the cursor
+that matches a known API name (`LuaHighlighter.KNOWN_NAMES` -- this mod's ~40 bound Lua globals
+plus keywords/stdlib), it completes to the first match and repeated Tab presses cycle through the
+rest (a bash-style cycle, not a rendered dropdown popup -- simpler to get right, a popup would be a
+real follow-up if this feels too limited live). Otherwise it inserts a 4-space indent, unchanged
+from before.
+
+- **Shift-Tab dedent / block-indent of a multi-line selection not implemented** -- Tab always
+  completes-or-indents at the cursor, never touches a whole selection's indentation.
+- **Not live-tested** -- everything above was verified against the real compiled bytecode, but
+  nothing beats actually typing in it. Watch especially for: cursor/selection drift during a long
+  Tab-completion cycle, click/drag precision (`seekCursorToPoint`'s Y math divides by a hardcoded
+  `9.0` that happens to equal this build's real `font.lineHeight`, confirmed, but worth a second
+  look if text ever looks clicked-through-wrong), and whether the reflective `StringView` accessor
+  throws on a differently-obfuscated/future MC build (it resolves the class by fully-qualified name
+  at class-init time, so a rename would fail loudly at screen-open, not silently misbehave).
 
 ## Freecam and right-click context-menu selection -- researched, not built (2026-09-15)
 
