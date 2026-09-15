@@ -1,6 +1,7 @@
 package com.ardor.planner;
 
 import com.google.gson.JsonObject;
+import com.ardor.client.ArdorMasterToggle;
 import com.ardor.game.ActionDispatcher;
 import com.ardor.game.GameActionController;
 import com.ardor.game.PathfindingController;
@@ -133,6 +134,7 @@ public final class TaskRunner {
 
     /** source is attributed on each dispatched command's ActionHistory entry ("planner" for the Task Manager UI, "llm" for say_do voice/chat commands routed here for sequencing -- see ResponseHandler). */
     public void run(List<PlannedTask> tasks, Listener listener, String source) {
+        if (!ArdorMasterToggle.isEnabled()) return; // master toggle off -- see its own doc
         this.tasks = new ArrayList<>(tasks);
         this.listener = listener;
         this.source = source;

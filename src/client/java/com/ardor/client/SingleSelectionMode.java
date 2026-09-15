@@ -9,6 +9,7 @@ import com.ardor.container.SourceType;
 import com.ardor.game.GameActionController;
 import com.ardor.game.KillAllController;
 import com.ardor.game.PathfindingController;
+import com.ardor.game.SelectorResolver;
 import com.ardor.region.RegionManager;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.event.client.player.ClientHotbarScrollEvents;
@@ -147,7 +148,12 @@ public final class SingleSelectionMode {
     public static boolean tryGoHere() {
         if (!active || goHereTarget == null) return false;
         BlockPos target = goHereTarget; // captured before stop() clears it below
-        BaritoneNav.goTo(target.getX(), target.getY(), target.getZ());
+        if (com.ardor.game.FlightNav.available()) {
+            com.ardor.game.FlightNav.flyTo(net.minecraft.world.phys.Vec3.atCenterOf(target), null, reason ->
+                    StatusIndicator.show("Go Here failed: " + reason));
+        } else {
+            BaritoneNav.goTo(target.getX(), target.getY(), target.getZ());
+        }
         StatusIndicator.show("Go Here @" + target.getX() + "," + target.getY() + "," + target.getZ());
         stop(); // "select and go" is a completed action -- don't leave the hologram/overlay hanging around after it
         return true;
@@ -171,8 +177,12 @@ public final class SingleSelectionMode {
      * The follow/kill/kill all/defend wedges for PickWheelKey's hold-to-open, or null if the
      * current target isn't an entity (so PickWheelKey opens the main wheel instead). Follow
      * (PathfindingController.followEntity) and single-target Kill (GameActionController.
-     * attackEntityUntilDead) reuse existing entry points; Kill All (KillAllController) and Defend
-     * (RegionManager.bindDefendToCurrentRegion) are new, small additions -- see TODO.md.
+     * attackEntityUntilDead) reuse existing entry points; Kill All (KillAllController) is a new,
+     * small addition -- see TODO.md. Defend classifies the targeted entity into one of the three
+     * Region Behavior Settings categories (SelectorResolver.categoryOf) and bumps THAT category to
+     * Reactive on the region the player is currently standing in (RegionManager.
+     * bumpAggressivenessForCurrentRegion) -- e.g. pointing Defend at a zombie opts this region into
+     * fighting back against hostiles, without touching anything broader.
      */
     public static List<ArdorWheelScreen.WheelOption> entitySubWheelOptions() {
         if (!active || kind != Kind.ENTITY || targetEntity == null) return null;
@@ -192,8 +202,14 @@ public final class SingleSelectionMode {
                     StatusIndicator.show("Killing all " + name + "-type entities nearby");
                 }),
                 new ArdorWheelScreen.WheelOption("Defend", () -> {
-                    RegionManager.get().bindDefendToCurrentRegion();
-                    StatusIndicator.show("Defend bound to this region");
+                    String category = SelectorResolver.categoryOf(entity);
+                    if (category == null) {
+                        StatusIndicator.show(name + " doesn't fit any Region Behavior Setting category.");
+                    } else if (RegionManager.get().bumpAggressivenessForCurrentRegion(category)) {
+                        StatusIndicator.show("This region now fights back against " + category + " entities.");
+                    } else {
+                        StatusIndicator.show("This region is already Reactive (or higher) against " + category + " entities.");
+                    }
                 })
         );
     }

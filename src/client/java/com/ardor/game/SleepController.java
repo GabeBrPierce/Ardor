@@ -1,10 +1,12 @@
 package com.ardor.game;
 
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
@@ -52,6 +54,15 @@ public final class SleepController {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(SleepController::onTick);
+        ArdorMasterToggle.register(SleepController::cancel);
+    }
+
+    /** stopSleepInBed alone only updates local client state (verified via javap) -- also sends the STOP_SLEEPING command a real sneak-to-wake sends, so the server actually wakes the player too. */
+    public static void cancel() {
+        LocalPlayer self = Minecraft.getInstance().player;
+        if (self == null || !self.isSleeping()) return;
+        self.connection.send(new ServerboundPlayerCommandPacket(self, ServerboundPlayerCommandPacket.Action.STOP_SLEEPING));
+        self.stopSleepInBed(false, true);
     }
 
     private static void onTick(Minecraft client) {
@@ -63,6 +74,7 @@ public final class SleepController {
     }
 
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         tick++;
         if (tick - lastAttemptTick < COOLDOWN_TICKS) return;
 

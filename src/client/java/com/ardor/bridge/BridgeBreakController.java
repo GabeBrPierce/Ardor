@@ -1,5 +1,6 @@
 package com.ardor.bridge;
 
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -36,9 +37,11 @@ public final class BridgeBreakController {
         if (registered) return;
         registered = true;
         ClientTickEvents.END_CLIENT_TICK.register(BridgeBreakController::tick);
+        ArdorMasterToggle.register(BridgeBreakController::stop);
     }
 
     public static void start(BlockPos pos, Direction requestedFace) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         Minecraft client = Minecraft.getInstance();
         LocalPlayer player = client.player;
         if (player == null) return;

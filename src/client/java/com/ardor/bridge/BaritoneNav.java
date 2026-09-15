@@ -6,6 +6,7 @@ import baritone.api.behavior.IPathingBehavior;
 import baritone.api.pathing.goals.Goal;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalGetToBlock;
+import baritone.api.utils.IInputOverrideHandler;
 import com.google.gson.JsonObject;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -77,13 +78,34 @@ public final class BaritoneNav {
         // copied rather than assumed appendable in place since its concrete type/mutability isn't
         // part of the public API contract) since PathfindingController.ensureScaffoldingMaterial
         // is what actually keeps dirt in the bot's inventory for this to draw on.
-        if (!settings.acceptableThrowawayItems.value.contains(Items.DIRT)) {
+        //
+        // "Use the stone we mined to build a stairway back up if we can't find a way back up
+        // ourselves" -- same real mechanism covers this too, no separate hand-rolled staircase
+        // builder needed: cobblestone/cobbled deepslate (the actual drops from mining stone/
+        // deepslate, not the source blocks themselves, which aren't what ends up in the inventory)
+        // are just more acceptable pillaring material. Baritone's own path search already only
+        // resorts to placing blocks when a normal walking route doesn't exist, which is exactly
+        // "if we can't find a way back up ourselves" -- BreakAreaController's own return-to-origin
+        // walk (see its own doc) gets this for free by reusing the same walkThenRun/Baritone path.
+        List<Item> extraThrowaway = List.of(Items.DIRT, Items.COBBLESTONE, Items.COBBLED_DEEPSLATE);
+        if (!settings.acceptableThrowawayItems.value.containsAll(extraThrowaway)) {
             List<Item> throwaway = new ArrayList<>(settings.acceptableThrowawayItems.value);
-            throwaway.add(Items.DIRT);
+            for (Item item : extraThrowaway) {
+                if (!throwaway.contains(item)) throwaway.add(item);
+            }
             settings.acceptableThrowawayItems.value = throwaway;
         }
         settings.allowPlace.value = true;
         settings.allowParkourPlace.value = true;
+
+        // "It considers a half slab a whole block and attempts to break it to attack enemies" --
+        // confirmed real via javap against Settings.class: allowWalkOnBottomSlab is exactly this
+        // toggle (walk onto/over a bottom slab as a normal, cheap step instead of treating its
+        // partial collision box the same as a full solid block needing a jump or a break-through).
+        // Never explicitly set anywhere in this codebase before, so it sat at Baritone's own
+        // default -- whatever that default actually is, this makes the intended behavior explicit
+        // rather than incidental.
+        settings.allowWalkOnBottomSlab.value = true;
     }
 
     // Made public (was package-private): PathfindingController (package
@@ -162,6 +184,34 @@ public final class BaritoneNav {
     public static boolean isAtGoal(BlockPos pos) {
         Goal goal = baritone().getPathingBehavior().getGoal();
         return goal != null && goal.isInGoal(pos);
+    }
+
+    /**
+     * "DisableImplicitDestruction -- disable the mod deciding we should break these blocks to get
+     * to the target." Baritone drives most movement now (mine's walk, follow, tool-fetch, Go Here)
+     * and makes its own independent decision to break an inconvenient block along a path
+     * (Settings.allowBreak) with no notion of Ardor's own region system at all. See
+     * game.BaritoneRegionGate, which calls this every tick based on whichever region the player is
+     * CURRENTLY in -- toggled here rather than left permanently off/on since a region boundary can
+     * be crossed mid-path.
+     */
+    public static void setAllowBreak(boolean allowed) {
+        BaritoneAPI.getSettings().allowBreak.value = allowed;
+    }
+
+    /**
+     * Real hook Baritone itself uses to drive movement -- every tick it's pathing, Baritone calls
+     * setInputForceState(JUMP/SPRINT/SNEAK/MOVE_FORWARD/etc, true/false) on this same handler to
+     * actually move the player (confirmed via javap: IInputOverrideHandler is a real interface,
+     * not an internal implementation detail). MovementVarianceController reads/overrides it
+     * AFTER Baritone's own tick to layer human-like imprecision on top (misjumps, crouching near
+     * risky terrain, speed variance) without touching Baritone's own path planning -- same
+     * "override on top" pattern GameActionController's combat strafing already established
+     * against Baritone-driven following, including that code's own acknowledged risk: whichever
+     * tick listener runs second in a given tick wins for that tick.
+     */
+    public static IInputOverrideHandler inputOverride() {
+        return baritone().getInputOverrideHandler();
     }
 
     /** {pathing, hasPath, atGoal?} -- the companion polls this instead of tracking position itself, same polling-friendly shape as everything else on this bridge. */

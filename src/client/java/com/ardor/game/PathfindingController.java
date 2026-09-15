@@ -21,6 +21,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
@@ -87,7 +88,8 @@ public final class PathfindingController {
 
     public static boolean handles(String verb) {
         return verb.equals("goto") || verb.equals("follow") || verb.equals("mine") || verb.equals("stop")
-                || verb.equals("shaft") || verb.equals("digHole") || verb.equals("macro") || verb.equals("sethome") || verb.equals("gohome");
+                || verb.equals("shaft") || verb.equals("digHole") || verb.equals("macro") || verb.equals("sethome")
+                || verb.equals("gohome") || verb.equals("pause");
     }
 
     /** True while a goto/mine/macro is actively running. Deliberately does NOT count an active follow (open-ended by design, never "finishes" on its own) -- see TaskRunner. */
@@ -181,6 +183,7 @@ public final class PathfindingController {
             case "macro":  handleMacro(action); return;
             case "sethome": handleSetHome(); return;
             case "gohome": handleGoHome(); return;
+            case "pause":  handlePause(action); return;
             default: throw new IllegalArgumentException("PathfindingController does not handle: " + verb);
         }
     }
@@ -442,14 +445,15 @@ public final class PathfindingController {
         LocalPlayer player = Minecraft.getInstance().player;
         Inventory inv = player.getInventory();
         if (Inventory.isHotbarSlot(slotIndex)) {
-            inv.setSelectedSlot(slotIndex);
+            HotbarUtil.selectSlot(player, slotIndex);
             return;
         }
+        // Real SWAP click, not direct inv.setItem/inv.setItem -- see GameActionController.
+        // selectItemInHand/ToolSelector.equipBestTool's docs for the "client-only mutation, server
+        // never told" bug this was the same shape as.
         int hotbar = inv.getSelectedSlot();
-        ItemStack held = inv.getItem(hotbar);
-        ItemStack toEquip = inv.getItem(slotIndex);
-        inv.setItem(hotbar, toEquip);
-        inv.setItem(slotIndex, held);
+        Minecraft.getInstance().gameMode.handleContainerInput(
+                player.inventoryMenu.containerId, slotIndex, hotbar, ContainerInput.SWAP, player);
     }
 
     /**
@@ -491,6 +495,11 @@ public final class PathfindingController {
         BlockPos target = dest.isJsonObject()
                 ? readPos(dest.getAsJsonObject())
                 : requireEntity(dest.getAsString(), "goto").blockPosition();
+        if (FlightNav.available()) {
+            FlightNav.flyTo(net.minecraft.world.phys.Vec3.atCenterOf(target), null,
+                    reason -> markFailed("goto: " + reason));
+            return;
+        }
         pathTo(target, null);
     }
 
@@ -541,6 +550,8 @@ public final class PathfindingController {
         beginBaritoneNav(failContext, onArrive, null, target, BARITONE_SCAFFOLD_TIMEOUT_MS);
     }
 
+    private static double baritoneNavInitialDistance;
+
     private static void beginBaritoneNav(String failContext, Runnable onArrive, java.util.function.Consumer<String> onFailed, BlockPos logGoal, long timeoutMs) {
         long now = System.currentTimeMillis();
         baritoneNavGoal = logGoal;
@@ -549,7 +560,25 @@ public final class PathfindingController {
         baritoneNavOnArrive = onArrive;
         baritoneNavFailContext = failContext;
         baritoneNavOnFailed = onFailed;
+        LocalPlayer player = Minecraft.getInstance().player;
+        baritoneNavInitialDistance = player != null ? Math.sqrt(player.blockPosition().distSqr(logGoal)) : 0;
         ensureBaritoneNavLoop();
+    }
+
+    /**
+     * "All Baritone navigation should be shown as a progress bar" -- 0-1 fraction of the straight-
+     * line distance already closed since this nav started (not real path-length remaining, which
+     * Baritone doesn't expose a simple query for -- straight-line distance is what's actually
+     * measurable here, a reasonable approximation for a progress bar rather than an exact ETA).
+     * -1 when nothing is currently navigating (baritoneNavGoal null) or the initial distance was
+     * ~0 (already at the goal when nav started, division would be meaningless).
+     */
+    public static double baritoneNavProgress() {
+        if (baritoneNavGoal == null || baritoneNavInitialDistance <= 0.001) return -1;
+        LocalPlayer player = Minecraft.getInstance().player;
+        if (player == null) return -1;
+        double remaining = Math.sqrt(player.blockPosition().distSqr(baritoneNavGoal));
+        return Math.max(0.0, Math.min(1.0, 1.0 - remaining / baritoneNavInitialDistance));
     }
 
     /**
@@ -606,6 +635,13 @@ public final class PathfindingController {
             baritoneNavGoal = null;
             baritoneNavOnArrive = null;
             baritoneNavOnFailed = null;
+            // Without this, Baritone's own pathing behavior stays "active" after arrival (goal met,
+            // but nothing ever told it to stop) -- BaritoneFacingController keeps seeing isPathing()
+            // == true and keeps steering the camera off residual/near-zero velocity noise for the
+            // entire duration of whatever onArrive does next (mining, placing, etc.), fighting that
+            // action's own look control every tick. Confirmed as the cause of the camera "wiggling
+            // off the block" mid-break reported live.
+            BaritoneNav.stop();
             onArrive.run();
             return;
         }
@@ -866,11 +902,9 @@ public final class PathfindingController {
             return;
         }
         // Every real pickaxe recipe is a 3-wide/3-tall shape (XXX/.#./.#.) -- confirmed via the
-        // real recipe JSONs, see TODO.md. RealCraftingController (not the old instant
-        // GameActionController.dispatch(craftAction(...))) -- confirmed live that the instant path
-        // produces a "ghost" item that vanishes the moment the server corrects the client back to
-        // truth, even in singleplayer; this walks to (or obtains+places) a real crafting table and
-        // crafts via actual slot-click packets instead.
+        // real recipe JSONs, see TODO.md. RealCraftingController walks to (or obtains+places) a
+        // real crafting table and crafts via actual slot-click packets, avoiding the "ghost item"
+        // desync the old instant-dispatch craft path produced.
         ensureSticks(2, () -> ensureTierMaterial(tier, 3, () ->
                 RealCraftingController.craft(tier.pickaxeId, 1,
                         () -> {
@@ -894,15 +928,7 @@ public final class PathfindingController {
             onReady.run();
             return;
         }
-        ensurePlanks(2, MAX_PLANK_ROUNDS, () -> {
-            try {
-                GameActionController.dispatch(craftAction("minecraft:stick", needed, false));
-            } catch (RuntimeException e) {
-                String reason = "couldn't craft sticks: " + e.getMessage();
-                logAndShow(reason, "Couldn't craft sticks");
-                markFailed(reason);
-                return;
-            }
+        ensurePlanks(2, MAX_PLANK_ROUNDS, () -> RealCraftingController.craft("minecraft:stick", needed, () -> {
             if (countInInventory(Items.STICK) < needed) {
                 String reason = "crafted sticks but still don't have " + needed;
                 logAndShow(reason, "Not enough sticks");
@@ -910,7 +936,11 @@ public final class PathfindingController {
                 return;
             }
             onReady.run();
-        });
+        }, reason -> {
+            String msg = "couldn't craft sticks: " + reason;
+            logAndShow(msg, "Couldn't craft sticks");
+            markFailed(msg);
+        }));
     }
 
     /** Package-private entry point for RealCraftingController (needs planks to craft a crafting_table before it can do anything else) -- same chain craftToolFromScratch/ensureChests already use, just under the default attempt budget. */
@@ -930,17 +960,14 @@ public final class PathfindingController {
             markFailed(reason);
             return;
         }
-        mineNext(resolveBlock("minecraft:oak_log"), 2, TOOL_ORE_SEARCH_RADIUS, null, () -> {
-            try {
-                GameActionController.dispatch(craftAction("minecraft:oak_planks", needed, false));
-            } catch (RuntimeException e) {
-                String reason = "couldn't craft oak_planks: " + e.getMessage();
-                logAndShow(reason, "Couldn't craft planks");
-                markFailed(reason);
-                return;
-            }
-            ensurePlanks(needed, attemptsLeft - 1, onReady);
-        });
+        mineNext(resolveBlock("minecraft:oak_log"), 2, TOOL_ORE_SEARCH_RADIUS, null, () ->
+                RealCraftingController.craft("minecraft:oak_planks", needed,
+                        () -> ensurePlanks(needed, attemptsLeft - 1, onReady),
+                        reason -> {
+                            String msg = "couldn't craft oak_planks: " + reason;
+                            logAndShow(msg, "Couldn't craft planks");
+                            markFailed(msg);
+                        }));
     }
 
     /**
@@ -1067,17 +1094,6 @@ public final class PathfindingController {
         return total;
     }
 
-    private static JsonObject craftAction(String itemId, int count, boolean useCraftingTable) {
-        JsonObject a = new JsonObject();
-        a.addProperty("action", "craft");
-        JsonObject item = new JsonObject();
-        item.addProperty("id", itemId);
-        item.addProperty("count", count);
-        a.add("item", item);
-        if (useCraftingTable) a.addProperty("useCraftingTable", true);
-        return a;
-    }
-
     /** No fuel field -- GameActionController.handleSmelt's own documented simplification ("omitting fuel consumes none") means this always proceeds without needing coal on hand, same as any other caller of the smelt verb that omits fuel. */
     private static JsonObject smeltAction(String inputId, int count) {
         JsonObject a = new JsonObject();
@@ -1176,8 +1192,58 @@ public final class PathfindingController {
         baritoneNavGoal = null;
         baritoneNavOnArrive = null;
         baritoneNavOnFailed = null;
+        FlightNav.cancel();
         GameActionController.stopAttacking();
         GameActionController.cancelWait();
+    }
+
+    private static int pauseTicksRemaining;
+    private static Runnable pauseOnDone;
+    private static boolean pauseTickerRegistered;
+
+    /**
+     * "wait-stopmoving-duration (pauses all player movement and actions for number of ticks)" --
+     * a scripting-language primitive requested ahead of the scripting language itself existing, so
+     * it's exposed here as a plain Java entry point any future script binding can call directly.
+     * Unlike the plain "wait" verb (GameActionController.handleWait, a tick-count delay that does
+     * NOT touch movement -- Baritone/PathExecutor/combat all keep running through it), this
+     * actually halts everything via the same handleStop() the "stop" verb uses, then holds for
+     * `ticks` before firing onDone. Deliberately callable even while NEEDS_IDLE would otherwise
+     * refuse a new command -- interrupting whatever's in progress is the entire point.
+     */
+    public static void pauseAllMovementAndActions(int ticks, Runnable onDone) {
+        handleStop();
+        // A prior pause still counting down would otherwise have its callback silently dropped
+        // here -- fatal for ScriptEngine's Lua pause(ticks) binding, which relies on this firing to
+        // resume a suspended coroutine (see TaskRunner.interrupt for the same "wrap up whatever's
+        // pending first" shape). Run it now, cut short, rather than lose it.
+        if (pauseOnDone != null) {
+            Runnable old = pauseOnDone;
+            pauseOnDone = null;
+            old.run();
+        }
+        pauseTicksRemaining = Math.max(ticks, 0);
+        pauseOnDone = onDone;
+        ensurePauseTicker();
+    }
+
+    private static void ensurePauseTicker() {
+        if (pauseTickerRegistered) return;
+        pauseTickerRegistered = true;
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (pauseTicksRemaining <= 0) return;
+            if (--pauseTicksRemaining == 0 && pauseOnDone != null) {
+                Runnable r = pauseOnDone;
+                pauseOnDone = null;
+                r.run();
+            }
+        });
+    }
+
+    private static void handlePause(JsonObject action) {
+        int ticks = action.has("ticks") ? action.get("ticks").getAsInt()
+                : (int) Math.round(action.get("seconds").getAsDouble() * 20);
+        pauseAllMovementAndActions(ticks, null);
     }
 
     private static BlockPos readPos(JsonObject pos) {

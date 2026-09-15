@@ -1,5 +1,6 @@
 package com.ardor.bridge;
 
+import com.ardor.client.ArdorMasterToggle;
 import com.ardor.game.InputSwapManager;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
@@ -30,6 +31,7 @@ public final class BridgeInputController {
         if (registered) return;
         registered = true;
         ClientTickEvents.END_CLIENT_TICK.register(BridgeInputController::tick);
+        ArdorMasterToggle.register(BridgeInputController::cancel);
     }
 
     public static void setInput(boolean forward, boolean back, boolean left, boolean right,
@@ -47,6 +49,12 @@ public final class BridgeInputController {
         return forward || back || left || right || jump || sneak || sprint;
     }
 
+    /** Drops held keys and releases input ownership so nothing stays stuck applied after disable. */
+    public static void cancel() {
+        forward = back = left = right = jump = sneak = sprint = false;
+        InputSwapManager.release(InputSwapManager.Owner.BRIDGE);
+    }
+
     // An uncaught exception here crashes the whole client -- confirmed live
     // elsewhere this session (TaskRunner/PushToTalk/MacroPlayer/etc.), same guard.
     private static void tick(Minecraft client) {
@@ -58,6 +66,7 @@ public final class BridgeInputController {
     }
 
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer player = client.player;
         if (player == null || !anyHeld()) {
             InputSwapManager.release(InputSwapManager.Owner.BRIDGE);

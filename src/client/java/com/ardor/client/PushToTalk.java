@@ -9,7 +9,7 @@ import net.minecraft.client.KeyMapping;
 public final class PushToTalk {
 
     private static final KeyMapping KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.ardor.talk", InputConstants.KEY_V, KeyMapping.Category.MISC));
+            "key.ardor.talk", InputConstants.KEY_V, ArdorKeyCategory.ARDOR));
 
     private static final VoicePipeline PIPELINE = new VoicePipeline();
     private static boolean wasDown = false;

@@ -24,6 +24,7 @@ repositories {
 		url "https://maven.terraformersmc.com/releases/"
 		name "TerraformersMC"
 	}
+	mavenCentral()
 }
 
 loom {
@@ -90,6 +91,22 @@ dependencies {
 	// all (MC 26.1.2 ships unobfuscated), so there's nothing for a `mod*` configuration to do here.
 	implementation "me.shedaniel.cloth:cloth-config-fabric:26.1.154"
 	implementation "com.terraformersmc:modmenu:18.0.1"
+
+	// Scripting language for user-authored scripts bound to keys/events/the wheel GUI (see
+	// com.ardor.script, TODO.md). LuaJ: pure-Java Lua interpreter, no native components to bundle
+	// (unlike GraalJS, which needs the GraalVM JS engine + Truffle on the module path -- a much
+	// heavier, more failure-prone addition for an embedded scripting need this small). Real Maven
+	// Central coordinate, confirmed resolvable against this project's existing repositories plus
+	// mavenCentral() above. Plain `implementation` alone only puts it on THIS project's dev
+	// classpath -- unlike cloth-config/modmenu (real Fabric mods the end user installs themselves
+	// as separate jars, so not bundling is correct), luaj-jse is an ordinary library with no
+	// fabric.mod.json of its own, so it has to be `include`d too or it's simply missing at runtime
+	// once this mod is just a jar in someone's mods folder. `include` nests it into ardor's own
+	// jar under META-INF/jars/, the same convention this project already observed upstream
+	// fabric-api itself uses for its own bundled submodules -- confirmed by actually unzipping the
+	// built jar and checking for org/luaj/**, not assumed.
+	implementation "org.luaj:luaj-jse:3.0.1"
+	include "org.luaj:luaj-jse:3.0.1"
 }
 
 processResources {

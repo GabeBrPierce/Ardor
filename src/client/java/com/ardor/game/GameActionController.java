@@ -1,6 +1,7 @@
 package com.ardor.game;
 
 import com.ardor.bridge.BaritoneNav;
+import com.ardor.client.ArdorMasterToggle;
 import com.google.gson.JsonObject;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
@@ -14,6 +15,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.CraftingInput;
@@ -56,6 +58,12 @@ import java.util.function.Predicate;
 public final class GameActionController {
 
     private GameActionController() {}
+
+    // No init-time register() of its own (ticking is lazy, via ensureAttackTicker/ensureWaitTicker) --
+    // this class can't be loaded without attackUntilDead already having run, so cancel() is always live.
+    static {
+        ArdorMasterToggle.register(GameActionController::stopAttacking);
+    }
 
     private static volatile boolean attacking = false;
     private static volatile Entity attackTarget;
@@ -176,14 +184,18 @@ public final class GameActionController {
         if (slotIndex < 0) throw new IllegalStateException("selectItemInHand: " + itemId + " not found in inventory");
 
         if (Inventory.isHotbarSlot(slotIndex)) {
-            inv.setSelectedSlot(slotIndex);
+            HotbarUtil.selectSlot(player, slotIndex);
             return;
         }
+
+        // Same client-only-mutation bug ToolSelector.equipBestTool had (see its own doc for the
+        // full story) -- a real SWAP click, not a direct inv.setItem/inv.setItem pair, so the
+        // server actually agrees on what's held. InventoryMenu's slot numbering matches raw
+        // Inventory storage indices 9-35 directly (confirmed via javap); slotIndex is guaranteed
+        // >= 9 here since the hotbar case already returned above.
         int hotbar = inv.getSelectedSlot();
-        ItemStack held = inv.getItem(hotbar);
-        ItemStack toEquip = inv.getItem(slotIndex);
-        inv.setItem(hotbar, toEquip);
-        inv.setItem(slotIndex, held);
+        Minecraft.getInstance().gameMode.handleContainerInput(
+                player.inventoryMenu.containerId, slotIndex, hotbar, ContainerInput.SWAP, player);
     }
 
     /** ITEM.getValue() silently falls back to air for an unknown id -- see PathfindingController.resolveBlock for how that surfaced live. getOptional() doesn't have that fallback. */

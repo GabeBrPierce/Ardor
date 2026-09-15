@@ -12,12 +12,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
 
-import java.awt.Desktop;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -54,7 +53,7 @@ public final class TaskPlannerScreen extends Screen {
 
     private enum Status { PENDING, RUNNING, DONE, FAILED }
 
-    private static final int TASK_LIST_TOP = 86; // leaves room for a "Tasks" / "Commands" header row above the list
+    private static final int TASK_LIST_TOP_DEFAULT = 86; // leaves room for a "Tasks" / "Commands" header row above the list
     private static final int ROW_H = 18;
     private static final int LINE_HEIGHT = 12;
 
@@ -77,6 +76,9 @@ public final class TaskPlannerScreen extends Screen {
     private static boolean planning;
     private static String lastGoal = "";
     private int tickCounter;
+
+    /** Recomputed each rebuildAllWidgets() from wherever the (now auto-wrapping, see FlowLayout) button row actually ends -- was a fixed constant, which is what let a wrapped row overlap the task list below it. */
+    private int taskListTop = TASK_LIST_TOP_DEFAULT;
 
     // Companion Tasks panel: a SEPARATE queue living in the companion process (CompanionDaemon /
     // TaskQueue), reached over BridgeServer.requestFromCompanion. Genuinely a different task
@@ -117,6 +119,7 @@ public final class TaskPlannerScreen extends Screen {
         clearWidgets();
 
         input = new EditBox(font, 10, 10, width - 20 - 70, 20, Component.literal("Goal"));
+        input.setHint(Component.literal("Goal"));
         input.setMaxLength(500);
         input.setValue(currentText);
         addRenderableWidget(input);
@@ -125,34 +128,63 @@ public final class TaskPlannerScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Send"), b -> onPlan())
                 .bounds(width - 65, 10, 55, 20).build());
 
-        runButton = addRenderableWidget(Button.builder(Component.literal("Run"), b -> onRun())
-                .bounds(10, 36, 60, 20).build());
-        runButton.active = !plan.isEmpty() && !RUNNER.isActive() && !TaskOrchestrator.isActive();
+        // Auto-wrapping instead of a hardcoded left-to-right march of absolute X positions --
+        // confirmed live ("buttons on the right side become cluttered and go on top of each
+        // other, even fullscreened") that the OLD fixed positions (10/74/138/202/281/345/406,
+        // ending ~496) could run past Close's own `width - 65` spot at a large GUI Scale, since
+        // Minecraft's UI coordinates are scaled logical pixels, not raw screen pixels -- "full
+        // screen" alone doesn't guarantee enough width. Reserve the top-right corner for Close;
+        // everything else flows left-to-right and wraps to a new row instead of overlapping it.
+        FlowLayout flow = new FlowLayout(10, 36, width - 75, 20, 4, 4);
 
+        int[] pos = flow.next(60);
+        runButton = addRenderableWidget(Button.builder(Component.literal("Run"), b -> onRun())
+                .bounds(pos[0], pos[1], 60, 20)
+                .tooltip(Tooltip.create(Component.literal("Runs the plan currently shown below exactly once (self-correcting on failures), then stops. Send first to produce that plan from a goal.")))
+                .build());
+        runButton.active = !plan.isEmpty() && !RUNNER.isActive() && !TaskOrchestrator.isActive() && ArdorMasterToggle.isEnabled();
+
+        pos = flow.next(60);
         cancelButton = addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onCancel())
-                .bounds(74, 36, 60, 20).build());
+                .bounds(pos[0], pos[1], 60, 20).build());
         cancelButton.active = RUNNER.isActive() || TaskOrchestrator.isActive();
 
+        pos = flow.next(60);
         pauseButton = addRenderableWidget(Button.builder(Component.literal(RUNNER.isPaused() ? "Resume" : "Pause"), b -> onPauseToggle())
-                .bounds(138, 36, 60, 20).build());
+                .bounds(pos[0], pos[1], 60, 20).build());
         pauseButton.active = RUNNER.isActive();
 
+        pos = flow.next(75);
         Button autoButton = addRenderableWidget(Button.builder(Component.literal("Auto-Run"), b -> onAutoRun())
-                .bounds(202, 36, 75, 20).build());
-        autoButton.active = !RUNNER.isActive() && !TaskOrchestrator.isActive();
+                .bounds(pos[0], pos[1], 75, 20)
+                .tooltip(Tooltip.create(Component.literal("Takes whatever's typed in the Goal box above (ignores the plan shown below) and plans+runs it AUTONOMOUSLY: keeps re-planning the next step(s) on its own, round after round, until the goal is done or it gives up -- no need to Send first.")))
+                .build());
+        autoButton.active = !RUNNER.isActive() && !TaskOrchestrator.isActive() && ArdorMasterToggle.isEnabled();
 
+        pos = flow.next(95);
+        addRenderableWidget(Button.builder(Component.literal(ArdorMasterToggle.isEnabled() ? "Ardor: ON" : "Ardor: OFF"),
+                        b -> { ArdorMasterToggle.toggle(); rebuildAllWidgets(); })
+                .bounds(pos[0], pos[1], 95, 20)
+                .tooltip(Tooltip.create(Component.literal("Master on/off switch for all of Ardor's autonomous behavior -- task execution, auto-eat/flee/combat/parry/etc, and the companion bridge. Off stops everything currently running immediately and blocks anything new from starting, same as the keybind (default O).")))
+                .build());
+
+        pos = flow.next(60);
         addRenderableWidget(Button.builder(Component.literal("Regions"), b -> Minecraft.getInstance().setScreen(new RegionListScreen()))
-                .bounds(281, 36, 60, 20).build());
+                .bounds(pos[0], pos[1], 60, 20).build());
+        pos = flow.next(55);
         addRenderableWidget(Button.builder(Component.literal("Events"), b -> Minecraft.getInstance().setScreen(new EventConfigScreen()))
-                .bounds(345, 36, 55, 20).build());
+                .bounds(pos[0], pos[1], 55, 20).build());
 
+        pos = flow.next(90);
         addRenderableWidget(Button.builder(Component.literal("Companion UI"), b -> openCompanionUi())
-                .bounds(406, 36, 90, 20).build());
+                .bounds(pos[0], pos[1], 90, 20).build());
 
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 36, 55, 20).build());
 
-        int y = TASK_LIST_TOP;
+        taskListTop = Math.max(TASK_LIST_TOP_DEFAULT, flow.bottom() + 4);
+
+        int y = taskListTop;
         for (int t = 0; t < plan.size(); t++) {
             int index = t;
             addRenderableWidget(Button.builder(Component.literal("▲"), b -> moveTask(index, -1))
@@ -475,20 +507,9 @@ public final class TaskPlannerScreen extends Screen {
                 });
     }
 
-    // Port must match CompanionDaemon.WEB_UI_PORT (companion project) -- no shared module between
-    // the mod and companion to reference a real constant from, same as the bridge port (24747)
-    // being duplicated as a literal on both sides already.
-    private static final String COMPANION_UI_URL = "http://127.0.0.1:24748/";
-
-    /** Best-effort only, same as CompanionDaemon's own openInBrowser -- no Desktop support (headless) isn't worth failing over, and there's nothing else useful to do if the companion app isn't even running to serve this URL. */
+    /** "The Companion button doesn't launch the companion" -- it used to just open a browser tab assuming CompanionDaemon was already running; see CompanionLauncher for what actually starting it needs. */
     private void openCompanionUi() {
-        try {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(URI.create(COMPANION_UI_URL));
-            }
-        } catch (Exception e) {
-            System.err.println("[ardor] couldn't open companion UI (open " + COMPANION_UI_URL + " manually): " + e);
-        }
+        CompanionLauncher.ensureRunningThenOpenUi();
     }
 
     private static String describeError(Throwable err) {
@@ -499,6 +520,7 @@ public final class TaskPlannerScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, width, height, 0xC0101010);
+        g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
 
         g.text(font, statusLine, 10, 60, 0xFFAAAAAA);
         drawLlmStatus(g);
@@ -511,10 +533,10 @@ public final class TaskPlannerScreen extends Screen {
         // expands into) -- explicit headers since "it doesn't look like we produce tasks... or
         // commands either" was a live report; the data was always there, just unlabeled (and,
         // separately, invisible -- see the alpha-channel fix noted in this class's header).
-        g.text(font, "Tasks (▲▼ reorder, X remove -- top runs first):", 10, TASK_LIST_TOP - LINE_HEIGHT - 4, 0xFFFFFFFF);
-        g.text(font, "Commands (from the top task):", rightColX, TASK_LIST_TOP - LINE_HEIGHT - 4, 0xFFFFFFFF);
+        g.text(font, "Tasks (▲▼ reorder, X remove -- top runs first):", 10, taskListTop - LINE_HEIGHT - 4, 0xFFFFFFFF);
+        g.text(font, "Commands (from the top task):", rightColX, taskListTop - LINE_HEIGHT - 4, 0xFFFFFFFF);
 
-        int y = TASK_LIST_TOP;
+        int y = taskListTop;
         for (int t = 0; t < plan.size(); t++) {
             int color = t == 0 ? 0xFFFFFF55 : 0xFFFFFFFF;
             g.text(font, plan.get(t).description(), 66, y + 4, color);
@@ -524,7 +546,7 @@ public final class TaskPlannerScreen extends Screen {
         if (!plan.isEmpty()) {
             PlannedTask current = plan.get(0);
             List<Status> s = statuses.get(0);
-            int ry = TASK_LIST_TOP;
+            int ry = taskListTop;
             g.text(font, current.description() + ":", rightColX, ry, 0xFFAAAAAA);
             ry += LINE_HEIGHT + 2;
             for (int c = 0; c < current.commands().size(); c++) {
@@ -538,11 +560,11 @@ public final class TaskPlannerScreen extends Screen {
                 ry += LINE_HEIGHT;
             }
         } else {
-            g.text(font, "No tasks yet.", rightColX, TASK_LIST_TOP, 0xFF808080);
+            g.text(font, "No tasks yet.", rightColX, taskListTop, 0xFF808080);
         }
 
         if (!errors.isEmpty()) {
-            int ey = Math.max(TASK_LIST_TOP + plan.size() * ROW_H, TASK_LIST_TOP) + 10;
+            int ey = Math.max(taskListTop + plan.size() * ROW_H, taskListTop) + 10;
             g.text(font, "Errors:", 10, ey, 0xFFFF5555);
             ey += LINE_HEIGHT;
             for (String e : errors) {

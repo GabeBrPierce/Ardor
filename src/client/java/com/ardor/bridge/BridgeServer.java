@@ -79,6 +79,11 @@ public final class BridgeServer {
         ClientLifecycleEvents.CLIENT_STOPPING.register(mc -> stop());
     }
 
+    /** Whether a companion process is CURRENTLY connected to this mod's bridge -- CompanionLauncher's real "is it already running and actually talking to me" signal, more reliable than just probing whether something answers on the companion's own web-UI port (which could be a stale/orphaned process not connected to this game instance at all). */
+    public static boolean isCompanionConnected() {
+        return activeChannel != null;
+    }
+
     /** Fire-and-forget push to whatever companion is currently connected -- a no-op if none is. Used for event relay (see EventHookDispatcher) and world.blockChanged. */
     public static void pushEvent(String eventId) {
         pushEvent(eventId, null);

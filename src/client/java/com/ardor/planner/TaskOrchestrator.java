@@ -1,6 +1,8 @@
 package com.ardor.planner;
 
+import com.ardor.client.ArdorMasterToggle;
 import com.ardor.client.StatusIndicator;
+import com.ardor.voice.ResponseHandler;
 import net.minecraft.client.Minecraft;
 
 import java.util.ArrayList;
@@ -12,19 +14,33 @@ import java.util.List;
  * complete... vague instructions like 'beat minecraft' it should be able to
  * orchestrate itself all the way to beating minecraft."
  *
- * Drives TaskRunner in a loop instead of a single decomposition pass: plan
- * an initial batch for the goal (TaskPlanner.plan), run it, and when the
- * queue empties, ask the model again (TaskPlanner.planNext) with a log of
- * what's happened, whether the goal is now complete. Repeats until the
- * model says goalComplete, MAX_ROUNDS is hit, or the user cancels.
+ * Two-stage staged-plan architecture ("develop a plan; another specially trained AI works out the
+ * details; the mod executes; failures/updates get sent to the proper layer so the planning AI
+ * doesn't lose context over micromanaging details"):
+ *   1. This class (the PLANNER layer) asks TaskPlanner.planSteps for an ordered list of small,
+ *      plain-English steps -- no ascii grammar, since it never needs to know the command syntax.
+ *   2. Each step is handed to its own Micromanager (the MICROMANAGER layer), which turns that ONE
+ *      step's plain English into ascii commands and runs them, self-correcting internally across
+ *      several rounds if needed.
+ *   3. A Micromanager reports back exactly ONE compact line ("Done: ..." / "FAILED: ... -- why")
+ *      when it finishes or gives up -- never its own internal retry noise -- which is all this
+ *      class's own progressLog ever sees. That's the actual fix for "losing context over
+ *      micromanaging details": this layer's re-planning prompt (planNextSteps) only ever reads
+ *      step-level summaries, staying focused on strategy instead of drowning in command-level
+ *      detail.
+ * A step failing does NOT abort the whole plan -- the orchestrator moves on to the next step
+ * regardless, logs the failure, and lets the NEXT re-planning round (which sees that failure in
+ * its progress log) decide whether to retry, work around it, or give up on the goal entirely.
  *
- * MAX_ROUNDS is a real, deliberate safety cap, not an incidental limit --
- * "beat minecraft" is not going to actually finish in 30 rounds of a 3B
- * local model. It exists so a model that never converges on "done" (a
- * stuck loop, a goal it keeps misjudging as incomplete) can't run
- * unattended forever burning LLM calls and real-world bot actions. This is
- * a genuine limitation of what's built here, not a hidden one -- see
- * TODO.md.
+ * Event-triggered interrupts (EventHookDispatcher.runUrgent) and direct user commands
+ * (ResponseHandler's SAY:/DO: path) both still go through TaskRunner.interrupt(), which already
+ * pauses and resumes whatever task list is currently running regardless of who submitted it -- so
+ * a Micromanager's in-flight step transparently survives "base attacked" or a direct new voice
+ * command with no new plumbing needed here; see Micromanager's own doc.
+ *
+ * MAX_ROUNDS is a real, deliberate safety cap, not an incidental limit -- "beat minecraft" is not
+ * going to actually finish in 30 rounds of a 3B local model. It exists so a model that never
+ * converges on "done" can't run unattended forever burning LLM calls and real-world bot actions.
  */
 public final class TaskOrchestrator {
 
@@ -39,7 +55,8 @@ public final class TaskOrchestrator {
     private static final List<String> progressLog = new ArrayList<>();
     private static int round;
     private static Listener uiListener;
-    private static List<PlannedTask> currentRoundTasks = List.of();
+    private static Micromanager currentMicromanager;
+    private static String currentStepText = "";
 
     private TaskOrchestrator() {}
 
@@ -47,22 +64,35 @@ public final class TaskOrchestrator {
         return active;
     }
 
-    /** The task list for whichever round is currently running -- UI screens use this to keep their own display in sync as rounds change. */
+    /** The user's original top-level goal ("Main Quest" for QuestTrackerOverlay) -- empty if nothing is active. */
+    public static String goal() {
+        return active ? goal : "";
+    }
+
+    /** The plain-English step currently being worked on ("side quest") -- empty between steps or if nothing is active. */
+    public static String currentStepText() {
+        return active ? currentStepText : "";
+    }
+
+    /** The ascii-command round whichever step is CURRENTLY executing is on -- UI screens (TaskPlannerScreen) use this to keep their own display in sync. Empty if no step is currently running (between steps, or nothing active). */
     public static List<PlannedTask> currentRoundTasks() {
-        return currentRoundTasks;
+        return currentMicromanager != null ? currentMicromanager.currentRoundTasks() : List.of();
     }
 
     public static void start(String goalText, Listener listener) {
-        if (active || TaskRunner.shared().isActive()) return;
+        if (active || TaskRunner.shared().isActive() || !ArdorMasterToggle.isEnabled()) return;
         active = true;
         goal = goalText;
         progressLog.clear();
         round = 0;
         uiListener = listener;
-        listener.onOrchestrationStatus("Planning initial task(s)...");
+        listener.onOrchestrationStatus("Planning initial step(s)...");
 
-        TaskPlanner.plan(goal)
-                .thenAccept(tasks -> Minecraft.getInstance().execute(() -> runRound(tasks)))
+        TaskPlanner.planSteps(goal)
+                .thenAccept(stepPlan -> Minecraft.getInstance().execute(() -> {
+                    if (!stepPlan.say().isBlank()) ResponseHandler.sayAloud(stepPlan.say());
+                    runStepRound(stepPlan.steps());
+                }))
                 .exceptionally(err -> {
                     Minecraft.getInstance().execute(() -> fail("Initial planning failed: " + describeError(err)));
                     return null;
@@ -70,36 +100,45 @@ public final class TaskOrchestrator {
     }
 
     /**
-     * Same self-correcting loop as start(), but for a plan the caller already
-     * has (TaskPlannerScreen's plain "Run" button, running whatever Send
-     * produced -- possibly reordered/edited since) instead of planning fresh
-     * from a goal string. goalText is still needed even though round 1 skips
-     * planning: continueOrchestration's re-planning prompt after a failure
-     * needs "Original goal: ..." same as the start()-driven path. "We still
-     * don't send the error back to the LLM. It needs to basically keep
-     * trying to produce tasks until they are fixed" -- confirmed live: Run
-     * used TaskRunner directly with no feedback loop at all, only Auto-Run
-     * (start()) had one; this closes that gap for Run without duplicating
-     * the round/progress-log machinery.
+     * Same self-correcting loop as start(), but for an already-decided ascii plan (TaskPlannerScreen's
+     * plain "Run" button, running whatever Send produced -- possibly reordered/edited since) instead
+     * of planning fresh steps from a goal string. Treated as a single step handed straight to one
+     * Micromanager (skipping ITS initial plan() call too, via startWithTasks) -- still gets that
+     * class's self-correcting re-plan loop for free, same as before this two-stage split existed.
      */
     public static void startWithTasks(String goalText, List<PlannedTask> initialTasks, Listener listener) {
-        if (active || TaskRunner.shared().isActive()) return;
+        if (active || TaskRunner.shared().isActive() || !ArdorMasterToggle.isEnabled()) return;
         active = true;
         goal = goalText;
         progressLog.clear();
-        round = 0;
+        round = 1;
         uiListener = listener;
-        runRound(initialTasks);
+        currentStepText = goalText;
+        currentMicromanager = new Micromanager(goalText);
+        currentMicromanager.startWithTasks(initialTasks, uiListener,
+                summary -> Minecraft.getInstance().execute(() -> {
+                    active = false;
+                    currentMicromanager = null;
+                    uiListener.onOrchestrationStatus(summary);
+                    StatusIndicator.show(summary);
+                }),
+                reason -> Minecraft.getInstance().execute(() -> fail(reason)));
     }
 
     public static void stop() {
         if (!active) return;
         active = false;
+        // "I can stop it but it immediately resolves" -- cancel the Micromanager INSTANCE itself,
+        // not just this class's own reference to it. Nulling currentMicromanager alone left an
+        // already-in-flight async plan/re-plan call free to resolve later and just keep going,
+        // ignoring the stop entirely -- see Micromanager.cancel()'s own doc for the full story.
+        if (currentMicromanager != null) currentMicromanager.cancel();
+        currentMicromanager = null;
         TaskRunner.shared().cancel();
         uiListener.onOrchestrationStatus("Stopped by user.");
     }
 
-    /** Pauses whichever round is currently running -- delegates to the shared TaskRunner, which is the one thing actually driving commands regardless of round. */
+    /** Pauses whichever step is currently running -- delegates to the shared TaskRunner, which is the one thing actually driving commands regardless of which Micromanager submitted them. */
     public static void pause() {
         if (!active) return;
         TaskRunner.shared().pause();
@@ -116,58 +155,50 @@ public final class TaskOrchestrator {
         return TaskRunner.shared().isPaused();
     }
 
-    private static void runRound(List<PlannedTask> tasks) {
+    private static void runStepRound(List<TaskPlanner.PlanStep> steps) {
         if (!active) return;
         round++;
-        currentRoundTasks = tasks;
-        if (tasks.isEmpty()) {
-            // The model returned goalComplete:false but zero tasks -- avoid a silent stall by
+        if (steps.isEmpty()) {
+            // The planner returned goalComplete:false but zero steps -- avoid a silent stall by
             // just asking again rather than treating this as "nothing to do, stop."
-            continueOrchestration();
+            continueStepOrchestration();
             return;
         }
-        TaskRunner.shared().run(tasks, wrap());
+        runNextStep(steps, 0);
     }
 
-    private static TaskRunner.Listener wrap() {
-        return new TaskRunner.Listener() {
-            @Override public void onTaskStarted(int taskIndex, PlannedTask task) {
-                uiListener.onTaskStarted(taskIndex, task);
-                uiListener.onOrchestrationStatus("Round " + round + ": " + task.description());
-            }
-            @Override public void onCommandStarted(int taskIndex, int commandIndex, String command) {
-                uiListener.onCommandStarted(taskIndex, commandIndex, command);
-            }
-            @Override public void onCommandFailed(int taskIndex, int commandIndex, String command, String error) {
-                uiListener.onCommandFailed(taskIndex, commandIndex, command, error);
-                progressLog.add("FAILED: " + command + " -- " + error);
-            }
-            @Override public void onCommandResult(int taskIndex, int commandIndex, String result) {
-                uiListener.onCommandResult(taskIndex, commandIndex, result);
-                progressLog.add("RESULT: " + result);
-            }
-            @Override public void onTaskFinished(int taskIndex) {
-                uiListener.onTaskFinished(taskIndex);
-                if (taskIndex < currentRoundTasks.size()) {
-                    progressLog.add("DONE: " + currentRoundTasks.get(taskIndex).description());
-                }
-            }
-            @Override public void onPlanFinished() {
-                uiListener.onPlanFinished();
-                if (!active) return;
-                continueOrchestration();
-            }
-        };
-    }
-
-    private static void continueOrchestration() {
+    private static void runNextStep(List<TaskPlanner.PlanStep> steps, int index) {
         if (!active) return;
+        if (index >= steps.size()) {
+            continueStepOrchestration();
+            return;
+        }
+        TaskPlanner.PlanStep step = steps.get(index);
+        if (!step.say().isBlank()) ResponseHandler.sayAloud(step.say());
+        uiListener.onOrchestrationStatus("Round " + round + ": " + step.doText());
+        currentStepText = step.doText();
+
+        currentMicromanager = new Micromanager(step.doText());
+        currentMicromanager.start(uiListener,
+                summary -> Minecraft.getInstance().execute(() -> {
+                    progressLog.add(summary);
+                    runNextStep(steps, index + 1);
+                }),
+                reason -> Minecraft.getInstance().execute(() -> {
+                    progressLog.add("FAILED: " + step.doText() + " -- " + reason);
+                    runNextStep(steps, index + 1);
+                }));
+    }
+
+    private static void continueStepOrchestration() {
+        if (!active) return;
+        currentMicromanager = null;
         if (round >= MAX_ROUNDS) {
             fail("Stopped after " + MAX_ROUNDS + " rounds (safety cap) without the goal being marked complete.");
             return;
         }
         uiListener.onOrchestrationStatus("Checking progress toward: " + goal + " (round " + (round + 1) + ")");
-        TaskPlanner.planNext(goal, String.join("\n", progressLog))
+        TaskPlanner.planNextSteps(goal, String.join("\n", progressLog))
                 .thenAccept(result -> Minecraft.getInstance().execute(() -> {
                     if (result.goalComplete()) {
                         active = false;
@@ -175,8 +206,8 @@ public final class TaskOrchestrator {
                         StatusIndicator.show("Goal complete: " + goal);
                         return;
                     }
-                    progressLog.add("Round " + round + ": planned " + result.tasks().size() + " more task(s)");
-                    runRound(result.tasks());
+                    progressLog.add("Round " + round + ": planned " + result.steps().size() + " more step(s)");
+                    runStepRound(result.steps());
                 }))
                 .exceptionally(err -> {
                     Minecraft.getInstance().execute(() -> fail("Re-planning failed: " + describeError(err)));
@@ -186,6 +217,8 @@ public final class TaskOrchestrator {
 
     private static void fail(String message) {
         active = false;
+        if (currentMicromanager != null) currentMicromanager.cancel();
+        currentMicromanager = null;
         uiListener.onOrchestrationStatus(message);
         StatusIndicator.show(message);
     }

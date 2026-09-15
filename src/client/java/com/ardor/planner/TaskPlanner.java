@@ -78,6 +78,103 @@ public final class TaskPlanner {
 
     public record OrchestrationResult(boolean goalComplete, List<PlannedTask> tasks) {}
 
+    // ------------------------------------------------------- staged plan/micromanager split
+    //
+    // "Develop a plan (a bunch of small achievable steps). Another specially trained AI works out
+    // the details (turns into commands the mod understands)." plan()/planNext() above ALREADY do
+    // exactly what a micromanager needs -- goal text in, ascii commands out, with FAILED/RESULT
+    // self-correction -- they just used to be called with the user's whole raw request as "goal".
+    // Now they're called with ONE step's plain-English doText instead (see Micromanager), and the
+    // methods below own the layer ABOVE that: decomposing a goal into steps that stay in plain
+    // English, never touching ascii grammar at all, so the planner model doesn't need to know the
+    // command grammar and the two roles can be entirely different models (see ArdorConfig's
+    // planner* fields).
+
+    public record PlanStep(String say, String doText) {}
+    public record StepPlan(String say, List<PlanStep> steps) {}
+    public record StepOrchestrationResult(boolean goalComplete, List<PlanStep> steps) {}
+
+    public static final String STEP_PLANNING_SYSTEM_PROMPT = """
+            You are Ardor's high-level task planner. The player describes a goal in plain English.
+            Break it into an ordered list of small, achievable steps. Each step is handed to a
+            SEPARATE specialist that turns plain English into actual game commands -- so do NOT use
+            any command syntax or grammar here, just describe each step in plain, concrete English
+            (e.g. "Collect three stacks of wooden planks of any variant", not "mine oak_log n:64").
+            Keep each step small enough to be a single achievable sub-goal. Give each step (and the
+            overall reply) a brief in-character spoken remark.
+            Respond with ONLY a JSON object, no prose, no markdown code fences, in this shape:
+            {"say": "<brief in-character acknowledgment of the overall goal>",
+             "steps": [{"say": "<brief in-character remark for this step>", "doText": "<plain-English sub-goal>"}, ...]}
+
+            Example -- "Build me a house":
+            {"say": "You got it!",
+             "steps": [
+               {"say": "First let's make sure we have enough wood.", "doText": "Collect three stacks of wooden planks of any variant"},
+               {"say": "We need torches too, otherwise mobs will spawn.", "doText": "Collect torches"},
+               {"say": "Now let's put up the walls.", "doText": "Build four walls of a small house using the collected planks"},
+               {"say": "Let's light the place up.", "doText": "Place torches around the inside and outside of the house"}
+             ]}
+            """;
+
+    /**
+     * Same self-correcting shape as planNext(), but re-planning STEPS (plain English) instead of
+     * ascii commands -- used once the current round of steps is exhausted, given a log of what
+     * each step's micromanager reported back (a compact DONE/FAILED summary per step, NOT that
+     * micromanager's own internal retry noise -- see Micromanager/TaskOrchestrator).
+     */
+    public static final String STEP_ORCHESTRATION_SYSTEM_PROMPT = """
+            You are Ardor's high-level task planner, continuing work on a goal across multiple
+            rounds. You'll be given the original goal and a log of steps completed or failed so far
+            (each a one-line summary from the specialist that executed it -- not raw command
+            detail). Decide: is the goal now fully achieved? If yes, respond with goalComplete:true
+            and an empty steps array. If not, decide the next small, achievable step(s), in plain
+            English (no command syntax -- see the planning prompt for why). If a step failed,
+            don't just repeat it verbatim -- change approach given why it failed.
+            Respond with ONLY a JSON object, no prose, no markdown code fences, in this shape:
+            {"goalComplete": true|false, "steps": [{"say": "...", "doText": "..."}, ...]}
+            """;
+
+    public static CompletableFuture<StepPlan> planSteps(String goal) {
+        ArdorConfig config = ArdorConfig.get();
+        ChatCompletionClient client = new ChatCompletionClient(
+                config.plannerEffectiveBaseUrl(), config.plannerEffectiveApiKey(), config.plannerEffectiveModel(), config.plannerEffectiveReasoningEffort());
+        return client.complete(STEP_PLANNING_SYSTEM_PROMPT, goal).thenApply(TaskPlanner::parseStepPlan);
+    }
+
+    public static CompletableFuture<StepOrchestrationResult> planNextSteps(String goal, String progressLog) {
+        ArdorConfig config = ArdorConfig.get();
+        ChatCompletionClient client = new ChatCompletionClient(
+                config.plannerEffectiveBaseUrl(), config.plannerEffectiveApiKey(), config.plannerEffectiveModel(), config.plannerEffectiveReasoningEffort());
+        String userMessage = "Original goal: " + goal + "\n\nSteps completed so far:\n"
+                + (progressLog.isBlank() ? "(nothing yet)" : progressLog);
+        return client.complete(STEP_ORCHESTRATION_SYSTEM_PROMPT, userMessage).thenApply(TaskPlanner::parseStepOrchestration);
+    }
+
+    static StepPlan parseStepPlan(String response) {
+        JsonObject obj = JsonParser.parseString(extractJsonObject(response)).getAsJsonObject();
+        String say = obj.has("say") ? obj.get("say").getAsString() : "";
+        List<PlanStep> steps = new ArrayList<>();
+        for (var el : obj.getAsJsonArray("steps")) {
+            JsonObject s = el.getAsJsonObject();
+            steps.add(new PlanStep(s.has("say") ? s.get("say").getAsString() : "", s.get("doText").getAsString()));
+        }
+        if (steps.isEmpty()) throw new IllegalArgumentException("planner returned zero steps");
+        return new StepPlan(say, steps);
+    }
+
+    static StepOrchestrationResult parseStepOrchestration(String response) {
+        JsonObject obj = JsonParser.parseString(extractJsonObject(response)).getAsJsonObject();
+        boolean complete = obj.has("goalComplete") && obj.get("goalComplete").getAsBoolean();
+        List<PlanStep> steps = new ArrayList<>();
+        if (obj.has("steps")) {
+            for (var el : obj.getAsJsonArray("steps")) {
+                JsonObject s = el.getAsJsonObject();
+                steps.add(new PlanStep(s.has("say") ? s.get("say").getAsString() : "", s.get("doText").getAsString()));
+            }
+        }
+        return new StepOrchestrationResult(complete, steps);
+    }
+
     private TaskPlanner() {}
 
     public static CompletableFuture<List<PlannedTask>> plan(String goal) {

@@ -40,6 +40,11 @@ public final class KillAllController {
         begin(e -> e instanceof Monster, area);
     }
 
+    /** Arbitrary-filter entry point for ScriptEngine's killAll(regex, ...) binding -- same loop as start(EntityType), just not restricted to one exact type. area null = radius-around-player. */
+    public static void startMatching(Predicate<Entity> entityFilter, AABB area) {
+        begin(entityFilter, area);
+    }
+
     private static void begin(Predicate<Entity> newFilter, AABB newFixedArea) {
         filter = newFilter;
         fixedArea = newFixedArea;

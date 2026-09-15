@@ -56,6 +56,7 @@ public final class EventConfigScreen extends Screen {
                 .create(165, 10, 260, 20, Component.literal("Event")));
 
         taskBox = new EditBox(font, 10, 36, 415, 20, Component.literal("Task"));
+        taskBox.setHint(Component.literal("Task (ascii command or plain-English goal)"));
         taskBox.setMaxLength(500);
         addRenderableWidget(taskBox);
 
@@ -64,15 +65,17 @@ public final class EventConfigScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Remove"), b -> onRemove())
                 .bounds(96, 62, 80, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(width - 65, 62, 55, 20).build());
+                .bounds(width - 65, 10, 55, 20).build());
 
         // "React to chat phrase" -- a separate row, since a phrase binding needs a parameter
         // (the phrase itself) that a single dropdown entry can't carry -- see
         // RegionManager.CHAT_PHRASE_PREFIX/bindChatPhrase.
         phraseBox = new EditBox(font, 10, 96, 150, 20, Component.literal("Phrase"));
+        phraseBox.setHint(Component.literal("Chat phrase"));
         phraseBox.setMaxLength(200);
         addRenderableWidget(phraseBox);
         phraseTaskBox = new EditBox(font, 165, 96, 260, 20, Component.literal("Response task"));
+        phraseTaskBox.setHint(Component.literal("Response task"));
         phraseTaskBox.setMaxLength(500);
         addRenderableWidget(phraseTaskBox);
         addRenderableWidget(Button.builder(Component.literal("Bind Phrase"), b -> onBindPhrase())
@@ -128,6 +131,7 @@ public final class EventConfigScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, width, height, 0xC0101010);
+        g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
 
         g.text(font, statusLine, 10, 146, 0xFFAAAAAA);
 

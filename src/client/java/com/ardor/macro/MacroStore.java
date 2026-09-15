@@ -43,6 +43,14 @@ public final class MacroStore {
         }
     }
 
+    public static void delete(String name) {
+        try {
+            Files.deleteIfExists(dir().resolve(name + ".json"));
+        } catch (IOException e) {
+            throw new RuntimeException("failed to delete macro '" + name + "': " + e.getMessage(), e);
+        }
+    }
+
     public static java.util.List<String> list() {
         try (var stream = Files.list(dir())) {
             return stream.map(p -> p.getFileName().toString())

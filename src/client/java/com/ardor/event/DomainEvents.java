@@ -97,6 +97,7 @@ public final class DomainEvents {
         checkFollowedDamage(player, listener);
         checkPlayerDetected(client, player, listener);
         checkRegionTransition(player, listener);
+        ScriptEventRegistry.tick();
     }
 
     private void checkIdle(LocalPlayer player, Listener listener) {

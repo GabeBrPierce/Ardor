@@ -1,6 +1,7 @@
 package com.ardor.game;
 
 import java.util.ArrayDeque;
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -9,7 +10,7 @@ import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.phys.Vec2;
 
 /**
- * Safety valve for the defend-on-attack reflex (RegionManager.ensureDefaultDefendBinding): that
+ * Safety valve for the defend-on-attack reflex (RegionCombatController's Reactive/Proactive tiers): that
  * reflex always fights back regardless of how outmatched the bot is, which caused real,
  * unintended deaths this session (kept fighting in a mob-infested area instead of retreating,
  * losing items each time). This is the missing override -- when health is critically low, stop
@@ -52,6 +53,7 @@ public final class AutoFleeController {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(AutoFleeController::onTick);
+        ArdorMasterToggle.register(AutoFleeController::cancel);
     }
 
     private static void onTick(Minecraft client) {
@@ -63,7 +65,13 @@ public final class AutoFleeController {
         }
     }
 
+    /** Not polled every tick -- would re-stomp a human's manual input after re-enable. */
+    public static void cancel() {
+        stopFleeing();
+    }
+
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer self = client.player;
         if (self == null || client.level == null) {
             stopFleeing();

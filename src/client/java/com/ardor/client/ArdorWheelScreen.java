@@ -54,7 +54,8 @@ public final class ArdorWheelScreen extends Screen {
                         new WheelOption("Radius", AreaSelectionMode::startRadius),
                         new WheelOption("Corners", AreaSelectionMode::startCorners)
                 )))),
-                new WheelOption("Pick Block", () -> Minecraft.getInstance().pickBlockOrEntity())
+                new WheelOption("Pick Block", () -> Minecraft.getInstance().pickBlockOrEntity()),
+                new WheelOption("Menu", () -> Minecraft.getInstance().setScreen(new ArdorConfigScreen(null)))
         ));
     }
 

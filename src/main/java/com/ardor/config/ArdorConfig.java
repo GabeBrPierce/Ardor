@@ -58,6 +58,44 @@ public final class ArdorConfig {
     public boolean needsApiKey() {
         return LlmProvider.fromConfigValue(llmProvider).needsApiKey;
     }
+
+    // ------------------------------------------------------- planner role (staged plan/micromanager split)
+    //
+    // "All should be configurable. We should be able to pick what model." The llm* fields above are
+    // the MICROMANAGER role -- they already point at training/'s fine-tuned single_command model by
+    // default, which is exactly what turning one plain-English sub-step into ascii commands needs
+    // (TaskPlanner.plan/planNext). The PLANNER role (TaskPlanner.planSteps/planNextSteps -- goal ->
+    // plain-English steps, no grammar) is deliberately a SEPARATE, independently configurable model:
+    // it can afford to be a bigger/slower general model since it's called far less often, and never
+    // needs to know the ascii grammar at all. Blank fields inherit the main llm* config (so a user
+    // who never touches this just gets one model for everything, same as before this existed);
+    // setting plannerProvider/etc lets planner and micromanager point at completely different
+    // backends (e.g. a cloud model for planning, the local fine-tune for execution) -- or the same
+    // llama-swap server on two different model names, once that's set up (see TODO.md).
+    public String plannerProvider = "";
+    public String plannerBaseUrl = "";
+    public String plannerApiKey = "";
+    public String plannerModel = "";
+    public String plannerReasoningEffort = "";
+
+    /** Blank plannerProvider means "inherit the main llm* config entirely" -- effectiveBaseUrl()/effectiveModel() already resolve that config's own provider-preset-vs-explicit-override choice. */
+    public String plannerEffectiveBaseUrl() {
+        if (!plannerBaseUrl.isBlank()) return plannerBaseUrl;
+        return plannerProvider.isBlank() ? effectiveBaseUrl() : LlmProvider.fromConfigValue(plannerProvider).defaultBaseUrl;
+    }
+
+    public String plannerEffectiveApiKey() {
+        return plannerApiKey.isBlank() ? llmApiKey : plannerApiKey;
+    }
+
+    public String plannerEffectiveModel() {
+        if (!plannerModel.isBlank()) return plannerModel;
+        return plannerProvider.isBlank() ? effectiveModel() : LlmProvider.fromConfigValue(plannerProvider).defaultModel;
+    }
+
+    public String plannerEffectiveReasoningEffort() {
+        return plannerReasoningEffort.isBlank() ? llmReasoningEffort : plannerReasoningEffort;
+    }
     public String whisperBinaryPath = "";
     public String whisperModelPath = "";
     public String piperBinaryPath = "";
@@ -88,6 +126,31 @@ public final class ArdorConfig {
     // matching agentEnabled's same "local machine only" posture.
     public boolean bridgeEnabled = true;
     public int bridgePort = 24747;
+
+    // "The Companion button doesn't launch the companion" -- it used to just open a browser tab
+    // assuming CompanionDaemon was already running somewhere; it never actually started the
+    // process. Blank by default (no sane machine-independent default -- same reasoning
+    // llmServerExecutable already documents), same install-your-own-path convention: point this at
+    // Ardor-Companion's Gradle `application` plugin output, e.g.
+    // ...\Ardor-Companion\build\install\ardor-companion\bin\ardor-companion.bat. See CompanionLauncher.
+    public String companionLauncherPath = "";
+
+    // LAN-only peer transport (see bridge/PeerServer.java, bridge/PeerClient.java) -- lets one
+    // Ardor instance query/command another separate instance (alt account, or a friend's client on
+    // the same LAN). Off by default and unlike bridgePort, binds 0.0.0.0 (LAN-reachable) when
+    // enabled -- gated only by peerSharedSecret, the first line every connection must send. Not
+    // designed to be exposed to the open internet: no encryption, no per-peer secrets.
+    public boolean peerListenEnabled = false;
+    public int peerListenPort = 24900;
+    public String peerSharedSecret = "";
+    // Edited by hand in ardor.json for now -- no settings-screen editor this pass, see TODO.md.
+    public List<PeerEntry> peers = List.of();
+
+    public static final class PeerEntry {
+        public String name;
+        public String host;
+        public int port;
+    }
 
     public static ArdorConfig get() {
         if (instance == null) instance = load();

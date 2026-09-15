@@ -1,7 +1,10 @@
 package com.ardor.game;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.level.block.state.BlockState;
@@ -34,7 +37,8 @@ public final class ToolSelector {
 
     private ToolSelector() {}
 
-    public static void equipBestTool(Inventory inv, BlockState blockState) {
+    public static void equipBestTool(LocalPlayer player, BlockState blockState) {
+        Inventory inv = player.getInventory();
         int bestSlot = -1;
         boolean bestCorrect = false;
         float bestSpeed = -1;
@@ -58,13 +62,23 @@ public final class ToolSelector {
         if (bestSlot < 0) return; // nothing in inventory has a Tool component better than what's already held
 
         if (Inventory.isHotbarSlot(bestSlot)) {
-            inv.setSelectedSlot(bestSlot);
+            HotbarUtil.selectSlot(player, bestSlot);
             return;
         }
+
+        // "We keep trying to break deepslate with a sword" -- confirmed real: this used to swap
+        // inv.setItem(hotbar, toEquip)/inv.setItem(bestSlot, held) directly, the exact same
+        // client-only-mutation bug HotbarUtil.selectSlot was built to fix for plain slot selection
+        // (Inventory.setSelectedSlot alone only ever updates the client's local field) -- just
+        // never migrated for the "best tool is in storage, not already in the hotbar" case. A real
+        // SWAP click (the same protocol a player pressing "1".."9" while hovering a storage slot
+        // sends) actually tells the server. InventoryMenu's slot numbering (confirmed via javap:
+        // INV_SLOT_START=9 for main storage, USE_ROW_SLOT_START=36 for the hotbar) matches raw
+        // Inventory storage indices 9-35 directly -- bestSlot is guaranteed >= 9 here since the
+        // hotbar case already returned above -- and SWAP's `button` parameter is the target hotbar
+        // slot (0-8), same indexing player.getInventory().getSelectedSlot() already uses.
         int hotbar = inv.getSelectedSlot();
-        ItemStack held = inv.getItem(hotbar);
-        ItemStack toEquip = inv.getItem(bestSlot);
-        inv.setItem(hotbar, toEquip);
-        inv.setItem(bestSlot, held);
+        Minecraft.getInstance().gameMode.handleContainerInput(
+                player.inventoryMenu.containerId, bestSlot, hotbar, ContainerInput.SWAP, player);
     }
 }

@@ -1,6 +1,7 @@
 package com.ardor.game;
 
 import java.util.function.ToDoubleFunction;
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -9,6 +10,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
@@ -47,6 +49,16 @@ public final class AutoEatController {
     private static final int EAT_COOLDOWN_TICKS = 40; // 2s -- vanilla eating takes ~32 ticks
 
     private static int cooldownTicksLeft;
+    // "Eating is not working -- it looks like it starts then stops." Real bug, confirmed via javap
+    // disassembly of Minecraft.class: the client's own per-tick keybind handling checks
+    // Options.keyUse.isDown() every tick and calls gameMode.releaseUsingItem(player) the instant
+    // it's false -- since AutoEatController's useItem() call was never a REAL held right-click,
+    // keyUse.isDown() was false on the very next tick, and vanilla's own logic cancelled the eat
+    // exactly one tick after it started. Same root class of bug as PathExecutor's ClientInput
+    // fight (this project's own established precedent: vanilla's per-tick input rebuild discards
+    // anything not backed by a forced key state) -- fixed the same way, by forcing keyUse down for
+    // the whole eating duration instead of firing a single bare useItem() and hoping it sticks.
+    private static boolean forcingEatKey;
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(AutoEatController::onTick);
@@ -61,14 +73,35 @@ public final class AutoEatController {
     }
 
     private static void tickInner(Minecraft client) {
+        LocalPlayer player = client.player;
+        if (player == null) return;
+
+        if (forcingEatKey) {
+            if (player.isUsingItem()) {
+                client.options.keyUse.setDown(true); // must be re-forced every tick -- vanilla's own keybind handling rebuilds isDown from real hardware state each tick otherwise
+                return;
+            }
+            // Actually finished (or got interrupted some other way) -- release our forced hold so
+            // it doesn't linger stuck "down" for real input afterward, then start the cooldown.
+            client.options.keyUse.setDown(false);
+            forcingEatKey = false;
+            cooldownTicksLeft = EAT_COOLDOWN_TICKS;
+            return;
+        }
+
+        // Master toggle off -- past this point is only decision-making for whether to START a new
+        // eat, checked AFTER the forcingEatKey release above so an already-in-progress eat (a real
+        // held right-click, mid-animation) finishes and releases keyUse cleanly instead of getting
+        // left stuck forced down.
+        if (!ArdorMasterToggle.isEnabled()) return;
+
         if (cooldownTicksLeft > 0) {
             cooldownTicksLeft--;
             return;
         }
 
-        LocalPlayer player = client.player;
         Level level = client.level;
-        if (player == null || level == null) return;
+        if (level == null) return;
         if (GameActionController.isBusy()) return;
         if (nearestHostileWithin(DEFENSIVE_RADIUS) != null) return; // in immediate danger -- never eat
 
@@ -76,14 +109,20 @@ public final class AutoEatController {
         Inventory inv = player.getInventory();
 
         if (foodLevel < FOOD_THRESHOLD) {
-            if (eatBest(player, inv, FoodProperties::nutrition)) cooldownTicksLeft = EAT_COOLDOWN_TICKS;
+            if (eatBest(player, inv, FoodProperties::nutrition)) startForcingEatKey(client);
             return;
         }
 
         boolean nightOrIncoming = level.isDarkOutside() || nearestHostileWithin(AWARENESS_RADIUS) != null;
         if (foodLevel < FULL_FOOD_LEVEL && nightOrIncoming) {
-            if (eatBest(player, inv, FoodProperties::saturation)) cooldownTicksLeft = EAT_COOLDOWN_TICKS;
+            if (eatBest(player, inv, FoodProperties::saturation)) startForcingEatKey(client);
         }
+    }
+
+    /** Must force keyUse down starting THIS tick, not just from the next one on -- vanilla's own keybind handling runs before this listener each tick, and would see isUsingItem()=true (just started) but isDown()=false (never forced yet) and release it immediately on the very next tick otherwise. */
+    private static void startForcingEatKey(Minecraft client) {
+        forcingEatKey = true;
+        client.options.keyUse.setDown(true);
     }
 
     private static Entity nearestHostileWithin(double radius) {
@@ -107,21 +146,22 @@ public final class AutoEatController {
         }
         if (bestSlot < 0) return false;
 
-        selectSlot(inv, bestSlot);
+        selectSlot(player, bestSlot);
         Minecraft.getInstance().gameMode.useItem(player, InteractionHand.MAIN_HAND);
         return true;
     }
 
     /** Mirrors GameActionController.selectItemInHand, but from a slot index we've already found. */
-    private static void selectSlot(Inventory inv, int slotIndex) {
+    private static void selectSlot(LocalPlayer player, int slotIndex) {
+        Inventory inv = player.getInventory();
         if (Inventory.isHotbarSlot(slotIndex)) {
-            inv.setSelectedSlot(slotIndex);
+            HotbarUtil.selectSlot(player, slotIndex);
             return;
         }
+        // Real SWAP click, not direct inv.setItem/inv.setItem -- see ToolSelector.equipBestTool's
+        // doc for the full "client-only mutation, server never told" story this was the same bug as.
         int hotbar = inv.getSelectedSlot();
-        ItemStack held = inv.getItem(hotbar);
-        ItemStack toEquip = inv.getItem(slotIndex);
-        inv.setItem(hotbar, toEquip);
-        inv.setItem(slotIndex, held);
+        Minecraft.getInstance().gameMode.handleContainerInput(
+                player.inventoryMenu.containerId, slotIndex, hotbar, ContainerInput.SWAP, player);
     }
 }

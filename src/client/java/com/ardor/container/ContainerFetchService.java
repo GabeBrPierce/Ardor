@@ -2,15 +2,26 @@ package com.ardor.container;
 
 import com.ardor.game.ContainerSearch;
 import com.ardor.game.PathfindingController;
+import com.ardor.game.RotationUtil;
+import com.ardor.game.TickPoll;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
@@ -18,11 +29,9 @@ import java.util.function.IntConsumer;
 /**
  * Fetches a specific cached item from its source: walk to a physical source (or its
  * sub-container's physical parent) and take the matching stack, take directly from the player's
- * own ender chest (no walking -- it's not position-bound), or send the declared command for a
- * COMMAND source (no verification, per the user's own spec -- see TODO.md). Reuses
- * PathfindingController.walkThenRun for the walk-then-take shape -- the same one
- * PathfindingController.obtainAdequateTool already uses for "go get a tool from a container,"
- * not a new mechanism.
+ * own ender chest (no walking), or send the declared command for a COMMAND source (no
+ * verification -- see TODO.md). PHYSICAL fetch opens the real container (same poll-for-menu
+ * pattern as RealCraftingController) and takes via a real QUICK_MOVE container-input packet.
  */
 public final class ContainerFetchService {
 
@@ -44,16 +53,91 @@ public final class ContainerFetchService {
             return;
         }
         BlockPos pos = new BlockPos(source.x, source.y, source.z);
-        PathfindingController.walkThenRun(pos, "couldn't reach " + source.displayLabel(SourceManager.get()), () -> {
-            Level level = Minecraft.getInstance().level;
-            Container c = level != null ? ContainerSearch.asContainer(level, pos) : null;
-            if (c == null) {
-                onFailed.accept("container at " + pos + " is gone or the chunk isn't loaded");
-                return;
+        PathfindingController.walkThenRun(pos, "couldn't reach " + source.displayLabel(SourceManager.get()),
+                () -> openPhysicalAndTake(source, pos, item,
+                        taken -> onFetched.accept(displayStack(item.itemId, taken)),
+                        onFailed),
+                onFailed);
+    }
+
+    private static ItemStack displayStack(String itemId, int count) {
+        Item item = BuiltInRegistries.ITEM.getOptional(Identifier.parse(itemId)).orElse(Items.BARRIER);
+        return new ItemStack(item, Math.max(1, count));
+    }
+
+    // ---- Real container open + click, PHYSICAL sources only -------------------------------------
+    // See this file's class doc for why: a chest-like BlockEntity is never populated with real
+    // items client-side except through its own currently-open menu.
+
+    private static final int MENU_OPEN_TIMEOUT_TICKS = 40; // 2s -- same budget AutoSourceRecorder's own container-open poll uses
+
+    /**
+     * Opens the real container at pos, polls for the menu, then takes the first matching slot via
+     * one real QUICK_MOVE (shift-click) packet -- vanilla's own quickMoveStack decides placement
+     * (merges into an existing stack first, an empty slot otherwise). Reports however much moved.
+     *
+     * KNOWN LIMITATION: an exact partial amount from a slot holding more than currently wanted
+     * isn't possible with a single click -- QUICK_MOVE always takes the whole slot. Can only
+     * overshoot, never undershoot -- see fetchPhysicalPartial's own doc.
+     */
+    private static void openPhysicalAndTake(ContainerSource source, BlockPos pos, CachedItem item, IntConsumer onTaken, Consumer<String> onFailed) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        Level level = mc.level;
+        if (player == null || level == null) {
+            onFailed.accept("no client level/player loaded");
+            return;
+        }
+        if (ContainerSearch.asContainer(level, pos) == null) {
+            onFailed.accept("container at " + pos + " is gone or the chunk isn't loaded");
+            return;
+        }
+        RotationUtil.lookAtExact(player, pos);
+        BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
+        mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+        pollForOpenMenuThenTake(source, item, onTaken, onFailed);
+    }
+
+    private static void pollForOpenMenuThenTake(ContainerSource source, CachedItem item, IntConsumer onTaken, Consumer<String> onFailed) {
+        TickPoll.until(MENU_OPEN_TIMEOUT_TICKS,
+                () -> {
+                    var player = Minecraft.getInstance().player;
+                    return player != null && player.containerMenu != player.inventoryMenu;
+                },
+                () -> takeFromOpenMenu(Minecraft.getInstance().player.containerMenu, source, item, onTaken, onFailed),
+                () -> onFailed.accept("container at " + source.displayLabel(SourceManager.get()) + " never opened (timed out)"));
+    }
+
+    /** menu is confirmed open at this point -- find the matching slot (excluding the player's own inventory/hotbar slots, via Slot.container) and take it with one real click. */
+    private static void takeFromOpenMenu(AbstractContainerMenu menu, ContainerSource source, CachedItem item, IntConsumer onTaken, Consumer<String> onFailed) {
+        LocalPlayer player = Minecraft.getInstance().player;
+        Container playerInv = player.getInventory();
+        Slot match = null;
+        for (Slot slot : menu.slots) {
+            if (slot.container == playerInv) continue;
+            if (!slot.getItem().isEmpty() && matches(slot.getItem(), item)) {
+                match = slot;
+                break;
             }
-            ItemStack taken = ContainerSearch.takeMatchingFrom(c, stack -> matches(stack, item));
-            giveOrFail(taken, item, onFetched, onFailed);
-        }, onFailed);
+        }
+        if (match == null) {
+            player.closeContainer();
+            onFailed.accept("'" + item.displayName + "' is no longer there (changed since the last scan)");
+            return;
+        }
+        int available = match.getItem().getCount();
+        Minecraft.getInstance().gameMode.handleContainerInput(menu.containerId, match.index, 0, ContainerInput.QUICK_MOVE, player);
+        // Real container clicks mutate Slots synchronously client-side too (confirmed via javap by
+        // RealCraftingController's own doc), so the same Slot instance already reflects the result.
+        int taken = available - (match.getItem().isEmpty() ? 0 : match.getItem().getCount());
+        // Cache stays honest with what's actually left, while the menu is conveniently still open.
+        ContainerCache.recordPhysicalContents(source.id, ContainerSearch.openMenuContents(menu, playerInv));
+        player.closeContainer();
+        if (taken <= 0) {
+            onFailed.accept("'" + item.displayName + "' couldn't be moved -- inventory full?");
+            return;
+        }
+        onTaken.accept(taken);
     }
 
     private static void fetchEnderChest(CachedItem item, Consumer<ItemStack> onFetched, Consumer<String> onFailed) {
@@ -220,22 +304,23 @@ public final class ContainerFetchService {
         }, onFailed);
     }
 
+    /**
+     * maxAmount/targetSlot are deliberately unused here, unlike the ENDER_CHEST/SUBCONTAINER
+     * siblings below -- those manipulate an ItemStack purely in memory and have to be told exactly
+     * where it lands, but a PHYSICAL take is a real QUICK_MOVE click (see openPhysicalAndTake's own
+     * doc): vanilla itself decides placement, and in practice merges into the SAME target slot's
+     * already-partially-filled stack from an earlier source in this fetch, since quickMoveStack
+     * prefers merging into an existing stack of the same item before falling back to an empty slot.
+     */
     private static void fetchPhysicalPartial(ContainerSource source, CachedItem item, int maxAmount, int targetSlot, IntConsumer onTaken, Consumer<String> onFailed) {
         if (source.x == null) {
             onFailed.accept("source has no position");
             return;
         }
         BlockPos pos = new BlockPos(source.x, source.y, source.z);
-        PathfindingController.walkThenRun(pos, "couldn't reach " + source.displayLabel(SourceManager.get()), () -> {
-            Level level = Minecraft.getInstance().level;
-            Container c = level != null ? ContainerSearch.asContainer(level, pos) : null;
-            if (c == null) {
-                onFailed.accept("container at " + pos + " is gone or the chunk isn't loaded");
-                return;
-            }
-            ItemStack taken = ContainerSearch.takeMatchingFrom(c, stack -> matches(stack, item), maxAmount);
-            giveIntoSlot(taken, item, targetSlot, onTaken, onFailed);
-        }, onFailed);
+        PathfindingController.walkThenRun(pos, "couldn't reach " + source.displayLabel(SourceManager.get()),
+                () -> openPhysicalAndTake(source, pos, item, onTaken, onFailed),
+                onFailed);
     }
 
     private static void fetchEnderChestPartial(CachedItem item, int maxAmount, int targetSlot, IntConsumer onTaken, Consumer<String> onFailed) {

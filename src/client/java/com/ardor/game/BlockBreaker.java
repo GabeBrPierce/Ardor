@@ -57,7 +57,7 @@ public final class BlockBreaker {
         this.onDone = onDone;
         this.lastFailureReason = null;
         this.creative = client.player.getAbilities().instabuild;
-        ToolSelector.equipBestTool(client.player.getInventory(), client.level.getBlockState(pos));
+        ToolSelector.equipBestTool(client.player, client.level.getBlockState(pos));
         // Creative mode doesn't go through the progressive startDestroyBlock/continueDestroyBlock
         // sequence at all -- confirmed live: mining silently made zero progress in creative (no
         // exception, no error, block just never broke and the timeout eventually fired). Vanilla's

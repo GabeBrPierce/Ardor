@@ -30,6 +30,7 @@ public final class ChatListener {
     public static void register() {
         ClientReceiveMessageEvents.CHAT.register((message, signedMessage, sender, boundChatType, timestamp) -> {
             String text = message.getString();
+            if (sender == null) return; // disguised/profileless chat has no backing GameProfile
             String senderName = sender.name();
 
             var player = Minecraft.getInstance().player;

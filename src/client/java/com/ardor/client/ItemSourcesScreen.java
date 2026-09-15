@@ -25,13 +25,14 @@ import java.util.List;
  */
 public final class ItemSourcesScreen extends Screen {
 
-    private static final int ROW_TOP = 40;
+    private static final int ROW_TOP_DEFAULT = 40;
     private static final int ROW_H = 20;
 
     private static String searchText = "";
 
     private EditBox searchBox;
     private List<ContainerSource> visible = List.of();
+    private int rowTop = ROW_TOP_DEFAULT;
 
     public ItemSourcesScreen() {
         super(Component.literal("Item Sources"));
@@ -46,18 +47,24 @@ public final class ItemSourcesScreen extends Screen {
         clearWidgets();
 
         searchBox = new EditBox(font, 10, 10, 300, 20, Component.literal("Search"));
+        searchBox.setHint(Component.literal("Search"));
         searchBox.setMaxLength(200);
         searchBox.setValue(searchText);
         searchBox.setResponder(v -> { searchText = v; rebuildAllWidgets(); });
         addRenderableWidget(searchBox);
         setInitialFocus(searchBox);
 
+        FlowLayout flow = new FlowLayout(320, 10, width - 75, 20, 4, 4);
+        int[] pos = flow.next(90);
         addRenderableWidget(Button.builder(Component.literal("Add New"), b -> Minecraft.getInstance().setScreen(new SourceEditScreen(null)))
-                .bounds(320, 10, 90, 20).build());
+                .bounds(pos[0], pos[1], 90, 20).build());
+        pos = flow.next(90);
         addRenderableWidget(Button.builder(Component.literal("Fetch Items"), b -> Minecraft.getInstance().setScreen(new FetchItemsScreen()))
-                .bounds(416, 10, 90, 20).build());
+                .bounds(pos[0], pos[1], 90, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
+
+        rowTop = Math.max(ROW_TOP_DEFAULT, flow.bottom() + 4);
 
         String q = searchText.trim().toLowerCase();
         List<ContainerSource> all = new ArrayList<>(SourceManager.get().currentProfile().sources.values());
@@ -67,7 +74,7 @@ public final class ItemSourcesScreen extends Screen {
                         || typeLabel(s.type).toLowerCase().contains(q))
                 .toList();
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (ContainerSource source : visible) {
             boolean isEnderChest = source.type == SourceType.ENDER_CHEST;
 
@@ -105,15 +112,16 @@ public final class ItemSourcesScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
         g.fill(0, 0, width, height, 0xC0101010);
+        g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (ContainerSource source : visible) {
             g.text(font, source.displayLabel(SourceManager.get()), 10, y + 5, 0xFFFFFFFF);
             g.text(font, typeLabel(source.type), 150, y + 5, 0xFFAAAAAA);
             y += ROW_H;
         }
         if (visible.isEmpty()) {
-            g.text(font, "No sources yet -- Add New to create one.", 10, ROW_TOP, 0xFF808080);
+            g.text(font, "No sources yet -- Add New to create one.", 10, rowTop, 0xFF808080);
         }
 
         super.extractRenderState(g, mouseX, mouseY, partialTick);

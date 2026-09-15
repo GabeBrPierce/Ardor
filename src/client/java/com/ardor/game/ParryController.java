@@ -1,5 +1,6 @@
 package com.ardor.game;
 
+import com.ardor.client.ArdorMasterToggle;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -75,6 +76,11 @@ public final class ParryController {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(ParryController::onTick);
+        ArdorMasterToggle.register(ParryController::cancel);
+    }
+
+    public static void cancel() {
+        stopParrying();
     }
 
     private static void onTick(Minecraft client) {
@@ -87,6 +93,7 @@ public final class ParryController {
     }
 
     private static void tickInner(Minecraft client) {
+        if (!ArdorMasterToggle.isEnabled()) return;
         LocalPlayer self = client.player;
         if (self == null || client.level == null) {
             stopParrying();
