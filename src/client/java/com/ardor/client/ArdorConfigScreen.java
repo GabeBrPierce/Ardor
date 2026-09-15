@@ -6,6 +6,8 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.List;
+
 /**
  * The mod's single Mod Menu entry point (see ArdorModMenuIntegration) -- replaces the five
  * separate "press a key to open a screen" keybinds that used to exist for Task Planner/Region
@@ -22,6 +24,9 @@ public final class ArdorConfigScreen extends Screen {
     private static final int BUTTON_WIDTH = 200;
     private static final int BUTTON_HEIGHT = 20;
     private static final int ROW_GAP = 24;
+    private static final int COLUMN_GAP = 10;
+
+    private record Row(String label, Button.OnPress onPress) {}
 
     private final Screen parent;
 
@@ -33,28 +38,38 @@ public final class ArdorConfigScreen extends Screen {
     @Override
     protected void init() {
         clearWidgets();
-        int x = width / 2 - BUTTON_WIDTH / 2;
-        // Clamp instead of pure vertical centering: at a high GUI Scale (small logical height),
-        // centering alone pushed the first row (Settings) to a negative Y, clipped above the
-        // top edge -- barely visible/unreachable.
-        int rowCount = 9;
-        int y = Math.max(20, height / 2 - (BUTTON_HEIGHT * rowCount + ROW_GAP * (rowCount - 1)) / 2);
 
-        y = addRow(x, y, "Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this)));
-        y = addRow(x, y, "Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen()));
-        y = addRow(x, y, "Regions", b -> Minecraft.getInstance().setScreen(new RegionListScreen()));
-        y = addRow(x, y, "Events", b -> Minecraft.getInstance().setScreen(new EventConfigScreen()));
-        y = addRow(x, y, "Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen()));
-        y = addRow(x, y, "Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen()));
-        y = addRow(x, y, "Scripts", b -> Minecraft.getInstance().setScreen(new ScriptListScreen()));
-        y = addRow(x, y, "Script Keybinds", b -> Minecraft.getInstance().setScreen(new ScriptKeybindScreen()));
-        addRow(x, y, "Done", b -> onClose());
-    }
+        List<Row> rows = List.of(
+                new Row("Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this))),
+                new Row("Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen())),
+                new Row("Regions", b -> Minecraft.getInstance().setScreen(new RegionListScreen())),
+                new Row("Events", b -> Minecraft.getInstance().setScreen(new EventConfigScreen())),
+                new Row("Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen())),
+                new Row("Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen())),
+                new Row("Scripts", b -> Minecraft.getInstance().setScreen(new ScriptListScreen())),
+                new Row("Script Keybinds", b -> Minecraft.getInstance().setScreen(new ScriptKeybindScreen())),
+                new Row("Macros", b -> Minecraft.getInstance().setScreen(new MacroListScreen())),
+                new Row("Macro Keybinds", b -> Minecraft.getInstance().setScreen(new MacroKeybindScreen())),
+                new Row("Done", b -> onClose())
+        );
 
-    private int addRow(int x, int y, String label, Button.OnPress onPress) {
-        addRenderableWidget(Button.builder(Component.literal(label), onPress)
-                .bounds(x, y, BUTTON_WIDTH, BUTTON_HEIGHT).build());
-        return y + ROW_GAP;
+        // Two columns instead of one long vertical stack: the row count keeps growing as features
+        // are added, and a single column re-triggers the same high-GUI-Scale clipping bug fixed for
+        // Settings earlier, just at the bottom edge instead of the top.
+        int perColumn = (rows.size() + 1) / 2;
+        int totalWidth = BUTTON_WIDTH * 2 + COLUMN_GAP;
+        int startX = width / 2 - totalWidth / 2;
+        int startY = Math.max(20, height / 2 - (BUTTON_HEIGHT * perColumn + ROW_GAP * (perColumn - 1)) / 2);
+
+        for (int i = 0; i < rows.size(); i++) {
+            int col = i / perColumn;
+            int row = i % perColumn;
+            int x = startX + col * (BUTTON_WIDTH + COLUMN_GAP);
+            int y = startY + row * ROW_GAP;
+            Row r = rows.get(i);
+            addRenderableWidget(Button.builder(Component.literal(r.label()), r.onPress())
+                    .bounds(x, y, BUTTON_WIDTH, BUTTON_HEIGHT).build());
+        }
     }
 
     @Override

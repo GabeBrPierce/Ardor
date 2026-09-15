@@ -10,6 +10,13 @@
   "key.ardor.scriptslot4": "Ardor Script Slot 4",
   "key.ardor.scriptslot5": "Ardor Script Slot 5",
   "key.ardor.scriptslot6": "Ardor Script Slot 6",
+  "key.ardor.macroslot1": "Ardor Macro Slot 1",
+  "key.ardor.macroslot2": "Ardor Macro Slot 2",
+  "key.ardor.macroslot3": "Ardor Macro Slot 3",
+  "key.ardor.macroslot4": "Ardor Macro Slot 4",
+  "key.ardor.macroslot5": "Ardor Macro Slot 5",
+  "key.ardor.macroslot6": "Ardor Macro Slot 6",
+  "key.ardor.macrostoprecording": "Stop Recording Macro",
   "key.ardor.taskplanner": "Open Task Planner",
   "key.ardor.panicstop": "PANIC STOP (halt everything)",
   "key.ardor.pausetoggle": "Pause/Resume Task"
