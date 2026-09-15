@@ -495,13 +495,15 @@ public final class ScriptEngine {
     }
 
     private static LuaTable buildWheelManagerTable() {
-        // show/hide only -- there is exactly ONE data-driven wheel (ScriptWheelStore); named
-        // multi-wheel create/edit/delete/search has no data model yet, so it isn't bound here.
+        // Named wheels (ScriptWheelStore is one-file-per-name). .edit isn't bound here -- mutating
+        // a wheel's wedge list entry-by-entry from Lua would need its own small schema on top of
+        // ScriptWheelEntry; WheelEditScreen is the editor for now.
         LuaTable table = new LuaTable();
-        table.set("show", new ZeroArgFunction() {
+        table.set("show", new VarArgFunction() {
             @Override
-            public LuaValue call() {
-                Minecraft.getInstance().execute(ScriptWheelKey::open);
+            public Varargs invoke(Varargs args) {
+                String wheelName = args.arg(1).optjstring(ScriptWheelStore.DEFAULT_WHEEL);
+                Minecraft.getInstance().execute(() -> ScriptWheelKey.open(wheelName));
                 return LuaValue.NONE;
             }
         });
@@ -512,6 +514,33 @@ public final class ScriptEngine {
                     Minecraft mc = Minecraft.getInstance();
                     if (mc.screen instanceof ArdorWheelScreen) mc.setScreen(null);
                 });
+                return LuaValue.NONE;
+            }
+        });
+        table.set("list", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                return stringArray(ScriptWheelStore.list());
+            }
+        });
+        table.set("search", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue regex) {
+                String pattern = regex.optjstring(".*");
+                return stringArray(ScriptWheelStore.list().stream().filter(n -> n.matches(pattern)).toList());
+            }
+        });
+        table.set("create", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue name) {
+                ScriptWheelStore.save(name.checkjstring(), new java.util.ArrayList<>());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("delete", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue name) {
+                ScriptWheelStore.delete(name.checkjstring());
                 return LuaValue.NONE;
             }
         });

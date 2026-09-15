@@ -22,8 +22,14 @@ MacroManager/WheelManager tables). Four parts are knowingly approximate:
   calling a blocking binding (`pause`, `home`, `promptLLM`, an `ArdorUsers` field) from inside one
   raises "cannot yield" instead of suspending. Caught and logged, never allowed to reach the tick
   loop, but it's a real authoring foot-gun with no friendly error.
-- **`WheelManager` is `.show()`/`.hide()` only.** `.create`/`.edit`/`.delete`/named-wheel lookup
-  need a named multi-wheel data model; `ScriptWheelStore` holds exactly one wheel today.
+- **`WheelManager` now supports named wheels** (`.show(name)`, `.hide()`, `.list()`, `.search(regex)`,
+  `.create(name)`, `.delete(name)`) via `ScriptWheelStore`'s one-file-per-name rewrite and the new
+  `WheelListScreen`/`WheelEditScreen` UI, resolving the gap noted here originally. `.edit` from Lua
+  is still not bound -- mutating a specific wedge's label/kind/target from a script would need its
+  own small argument schema on top of `ScriptWheelEntry`; `WheelEditScreen` is the editor for now.
+  A one-time migration moves the old single `config/ardor-scriptwheel.json` into a wheel named
+  "default" (also what the J keybind and an argument-less `WheelManager.show()` open) the first time
+  this runs against an install that still has it.
 
 Also unbuilt, and the natural next step once the peer transport is proven: per-verb async proxy
 methods on an `ArdorUsers[i]` entry (`:KillAsync(...)` and friends). Today there is only the generic

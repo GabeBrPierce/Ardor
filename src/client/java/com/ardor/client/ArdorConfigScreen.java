@@ -50,6 +50,7 @@ public final class ArdorConfigScreen extends Screen {
                 new Row("Script Keybinds", b -> Minecraft.getInstance().setScreen(new ScriptKeybindScreen())),
                 new Row("Macros", b -> Minecraft.getInstance().setScreen(new MacroListScreen())),
                 new Row("Macro Keybinds", b -> Minecraft.getInstance().setScreen(new MacroKeybindScreen())),
+                new Row("Wheels", b -> Minecraft.getInstance().setScreen(new WheelListScreen())),
                 new Row("Done", b -> onClose())
         );
 

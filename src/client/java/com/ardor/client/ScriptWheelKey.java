@@ -33,16 +33,21 @@ public final class ScriptWheelKey {
         KeybindTicker.add(KEY, ScriptWheelKey::open);
     }
 
-    /** Public so ScriptEngine's WheelManager.show() binding opens the exact same wheel this key does. */
+    /** Opens the "default" named wheel -- what this key, and ScriptEngine's WheelManager.show() with no argument, both open. */
     public static void open() {
+        open(ScriptWheelStore.DEFAULT_WHEEL);
+    }
+
+    /** Opens any named wheel -- used by WheelListScreen's Show button and WheelManager.show(name). */
+    public static void open(String wheelName) {
         Minecraft client = Minecraft.getInstance();
         if (client.screen == null) {
-            client.setScreen(new ArdorWheelScreen(buildOptions()));
+            client.setScreen(new ArdorWheelScreen(buildOptions(wheelName)));
         }
     }
 
-    private static List<ArdorWheelScreen.WheelOption> buildOptions() {
-        List<ScriptWheelEntry> entries = ScriptWheelStore.load();
+    private static List<ArdorWheelScreen.WheelOption> buildOptions(String wheelName) {
+        List<ScriptWheelEntry> entries = ScriptWheelStore.load(wheelName);
         List<ArdorWheelScreen.WheelOption> options = new ArrayList<>();
         for (ScriptWheelEntry entry : entries) {
             options.add(new ArdorWheelScreen.WheelOption(entry.label, () -> run(entry)));
