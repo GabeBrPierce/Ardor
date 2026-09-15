@@ -59,9 +59,23 @@ public final class RegionListScreen extends Screen {
         int y = Math.max(40, flow.bottom() + 4);
         for (String name : names) {
             String n = name;
+            boolean isGlobal = "global".equals(n);
             addRenderableWidget(Button.builder(Component.literal(n), b -> Minecraft.getInstance().setScreen(new RegionEditScreen(n)))
-                    .bounds(10, y, 200, 18).build());
+                    .bounds(10, y, isGlobal ? 200 : 160, 18).build());
+            if (!isGlobal) {
+                addRenderableWidget(Button.builder(Component.literal("Delete"), b -> onDelete(n))
+                        .bounds(174, y, 46, 18).build());
+            }
             y += 20;
+        }
+    }
+
+    private void onDelete(String name) {
+        try {
+            RegionManager.get().deleteRegion(RegionManager.currentProfileKey(), name);
+            init();
+        } catch (RuntimeException e) {
+            statusLine = e.getMessage();
         }
     }
 
