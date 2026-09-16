@@ -52,6 +52,7 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaThread;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.DebugLib;
 import org.luaj.vm2.lib.OneArgFunction;
 import org.luaj.vm2.lib.TwoArgFunction;
 import org.luaj.vm2.lib.VarArgFunction;
@@ -157,6 +158,127 @@ public final class ScriptEngine {
     /** Cancels EVERY running script, not one handle -- simplest reading of "//ardor script stop" now that several can be in flight. Can't forcibly unwind a suspended coroutine (LuaJ has no hard kill); dropping the reference just means it's never resumed again. */
     public static void cancel() {
         RUNNING.clear();
+    }
+
+    // ------------------------------------------------------------------ step debugging
+
+    /**
+     * One paused-or-running debug session, the UI's handle for step()/cancelDebug() and reading
+     * locals. Several can be in flight independently -- LuaJ 3.0.1's debug-hook state lives on
+     * LuaThread$State, not the shared Globals, confirmed via bytecode, so debugging one script
+     * doesn't interfere with another running (debugged or not) at the same time.
+     */
+    public static final class DebugSession {
+        final LuaThread thread;
+        volatile Runnable pendingStep;
+
+        private DebugSession(LuaThread thread) {
+            this.thread = thread;
+        }
+
+        /** True once paused at a line and waiting for step() -- false while running, finished, or errored. */
+        public boolean isPaused() {
+            return pendingStep != null;
+        }
+    }
+
+    private static boolean debugLibLoaded;
+
+    /**
+     * Lazily loads DebugLib into the shared Globals the first time debugging is used, then leaves
+     * it loaded for the rest of the session rather than trying to precisely toggle it on/off.
+     * Simpler and safer -- LuaJ's interpreter loop calls debuglib.onInstruction for every
+     * instruction of every script once globals.debuglib is non-null (a real per-instruction cost,
+     * confirmed via bytecode), even for undebugged scripts, so this does cost a little forever
+     * after the first debug session -- but toggling it back off mid-session risks desyncing a
+     * differently-running thread's own onCall/onReturn pairing, which is worse. This mod's actual
+     * scripts (interval-polled predicates, occasional keybind/wheel runs) aren't tight loops, so the
+     * overhead should be negligible in practice; not measured live.
+     */
+    private static void ensureDebugLib() {
+        if (debugLibLoaded) return;
+        debugLibLoaded = true;
+        globals().load(new DebugLib());
+    }
+
+    /**
+     * Starts `source` as a stepped debug session -- a real LuaJ line hook (debug.sethook(thread,
+     * fn, "l"), PUC-Lua's own hook semantics) yields through the exact same suspend() bridge every
+     * blocking binding already uses, once per line, and only advances on step(). Safe because
+     * LuaJ 3.0.1's coroutines are real parked Java threads (confirmed via bytecode) -- nothing
+     * needs to unwind for a yield fired from deep inside a hook callback to work. onPause is called
+     * on the client thread every time a new line is reached, with the 1-based line number.
+     */
+    public static DebugSession startDebug(String source, String scriptName, Consumer<Integer> onPause, Consumer<String> onError) {
+        ensureDebugLib();
+        Globals g = globals();
+        LuaValue chunk;
+        try {
+            chunk = g.load(source, scriptName);
+        } catch (LuaError e) {
+            onError.accept("script failed to parse: " + e.getMessage());
+            return null;
+        }
+        g.set("ArdorUsers", buildArdorUsers());
+        LuaThread thread = new LuaThread(g, chunk);
+        DebugSession session = new DebugSession(thread);
+
+        LuaValue hook = new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int line = args.arg(2).toint(); // PUC hook args: (event, line)
+                Minecraft.getInstance().execute(() -> onPause.accept(line));
+                return suspend(done -> session.pendingStep = () -> done.accept(LuaValue.NONE));
+            }
+        };
+        g.get("debug").get("sethook").invoke(LuaValue.varargsOf(new LuaValue[]{thread, hook, LuaValue.valueOf("l")}));
+
+        RUNNING.put(thread, onError);
+        resume(thread, LuaValue.NONE);
+        return session;
+    }
+
+    /** Advances a paused session to its next line (or to completion, if none remains). No-op if it isn't currently paused. */
+    public static void step(DebugSession session) {
+        Runnable go = session.pendingStep;
+        if (go == null) return;
+        session.pendingStep = null;
+        go.run();
+    }
+
+    public static void cancelDebug(DebugSession session) {
+        RUNNING.remove(session.thread);
+    }
+
+    /**
+     * Name/value pairs for every local variable in scope at a session's current pause point
+     * (innermost real Lua frame -- the hook function itself is a Java VarArgFunction, not an
+     * interpreted closure, so it shouldn't occupy a debug-info level of its own; UNVERIFIED live,
+     * see TODO.md if this comes back empty or wrong when it should have real locals). Empty if the
+     * session isn't currently paused.
+     */
+    public static List<String[]> debugLocals(DebugSession session) {
+        List<String[]> out = new ArrayList<>();
+        if (!session.isPaused()) return out;
+        LuaValue getlocal = globals().get("debug").get("getlocal");
+        for (int n = 1; n <= 200; n++) {
+            Varargs result = getlocal.invoke(LuaValue.varargsOf(new LuaValue[]{session.thread, LuaValue.valueOf(1), LuaValue.valueOf(n)}));
+            if (result.arg1().isnil()) break;
+            out.add(new String[]{result.arg1().tojstring(), result.arg(2).tojstring()});
+        }
+        return out;
+    }
+
+    /** Name/value pairs for every current global -- includes the whole bound API table/function set, not just user data, matching "including global variables and functions" as asked. */
+    public static List<String[]> debugGlobals() {
+        List<String[]> out = new ArrayList<>();
+        Varargs entry = globals().next(LuaValue.NIL);
+        while (!entry.arg1().isnil()) {
+            LuaValue key = entry.arg1();
+            out.add(new String[]{key.tojstring(), globals().get(key).tojstring()});
+            entry = globals().next(key);
+        }
+        return out;
     }
 
     private static Globals globals() {

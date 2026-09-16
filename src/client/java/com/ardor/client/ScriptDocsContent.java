@@ -580,6 +580,27 @@ final class ScriptDocsContent {
                 multiple parameters beyond repeating @param once per line -- keep the description \
                 itself short, since the popup wraps to a fixed width."""),
 
+        new Section("debugging", "Stepping Through a Script", """
+                Check the Debug box next to Run, then press Run: instead of running straight through, \
+                the script pauses before every line, and the currently-paused line is highlighted in \
+                the editor. Press Step to advance one line at a time; press Stop Debug to abandon the \
+                session early. The panel on the right shows every local variable in scope and every \
+                current global (functions included) at the paused point -- Locals first, then Globals, \
+                each as a plain "name = value" line, scrollable on its own if the list runs long.
+
+                This first pass is a flat list, not the full collapsible tree view with nested table \
+                expansion -- if a value is a table, it currently just shows as something like \
+                "table: 0x1a2b3c4d" rather than letting you expand it to see its own fields. There's \
+                also no hover-over-a-variable-in-your-code tooltip yet, and only one script's \
+                execution shows at a time even if it triggered another script along the way.
+
+                A paused script is genuinely stopped -- nothing else that script does continues until \
+                you Step or Stop Debug, same as any real debugger. Unlike a normal Run, a debug run \
+                actually costs a little extra overhead for EVERY script for the rest of your session \
+                once you've used Debug at all once, not just the one being stepped -- negligible for \
+                the short scripts this mod runs, but worth knowing if you're chasing a performance \
+                issue."""),
+
         new Section("reference", "Full Function Reference", """
                 Quick alphabetical list -- see the sections above for details on each.
 

@@ -3,6 +3,59 @@
 Convention: this file lists only currently open work -- stubbed features, deferred asks, and known
 unfixed bugs. Entries are removed once resolved; resolved history lives in git/session logs, not here.
 
+## Step debugger: core engine + flat variable list shipped; the real tree-view/hover/multi-script UI is not (2026-09-16)
+
+Requested: a Debug checkbox that steps a script one line at a time, an object explorer showing every
+in-scope local/global (recursively into nested tables, grouped by source, collapsible, with tree
+glyphs `▾▸├│└`), hover-over-a-variable tooltips showing its live value, and a simultaneous view when
+multiple scripts are executing. This is genuinely several features -- what shipped is the FIRST,
+load-bearing one: a real, working step engine plus the simplest UI that proves it, not the full
+design. The rest is follow-up work, listed below, not started.
+
+- **The engine is real, not a stub.** `ScriptEngine.startDebug`/`step`/`cancelDebug`/`debugLocals`/
+  `debugGlobals` install an actual LuaJ `debug.sethook(thread, fn, "l")` line hook that yields
+  through the exact same `suspend()` bridge every blocking binding (`pause`, `home`, ...) already
+  uses. This works because LuaJ 3.0.1's coroutines are real parked Java threads (confirmed via
+  bytecode disassembly, not assumed) -- a yield fired from deep inside a hook callback doesn't need
+  to unwind anything, the whole Java call stack is just parked in `Object.wait()`. Per-thread debug
+  hook state (confirmed via bytecode: lives on `LuaThread$State`, not the shared `Globals`) means one
+  script can be stepped while others run at full speed with no interference -- the architecture
+  already supports the "multiple scripts at once" ask, just not the UI to show it yet (see below).
+- **`ScriptEditScreen` ships**: a Debug checkbox, Step/Stop Debug buttons (top of a new permanent
+  right-side panel -- reserved unconditionally so toggling Debug never needs to recreate the text
+  field at a new width mid-edit, which would lose cursor/selection state), the current line
+  highlighted in the editor while paused, and a flat (not tree/collapsible) Locals-then-Globals
+  list in that panel, scrollable on its own. Long values are crudely clipped to ~34 characters by
+  character count, not measured pixel width -- fine ahead of a real tree view, not fine as the
+  permanent design.
+- **NOT built, real follow-up work**: the recursive tree view itself (expand a table value into ITS
+  OWN fields/functions, indented, with `▾▸├│└` glyphs -- whether Minecraft's bitmap font even
+  renders those specific Unicode box-drawing/triangle characters is unconfirmed, worth checking
+  before assuming they'll show correctly rather than as tofu); the object explorer being
+  independently collapsible as a whole panel (today it's just always there); hover-over-a-variable-
+  in-the-code tooltips (would reuse the same cursor-to-identifier detection `renderSignatureHelp`
+  already does for function calls, extended to plain variable names, then looked up via the same
+  `debug.getlocal`/globals-walk this pass built); and any simultaneous multi-script view (the
+  panel only ever shows ONE session, the one belonging to whichever `ScriptEditScreen` is open).
+- **The padlock icon request was never resolved.** The original message cut off mid-sentence
+  ("and a padlock icon to show") and was never clarified after being asked about directly. `[L]`/
+  `[G]` tags stand in for it in the flat list -- `[G]` leans on the one thing that's actually
+  confirmed and documented (globals persist across script runs, locals don't), since that's the
+  closest defensible reading of "locked" available, not a confirmed answer to what was actually
+  meant. Revisit once/if the real meaning is clarified.
+- **One mechanic is reasoned through but genuinely unverified live**: `debugLocals` reads
+  `debug.getlocal(thread, level=1, n)` on the assumption that level 1, queried from OUTSIDE the
+  paused thread, lands on the script's own executing frame rather than the hook function's frame
+  (a Java `VarArgFunction`, not an interpreted closure, which per the hook's own `state.inhook`
+  reentrancy-guard design shouldn't occupy a tracked call-stack level at all -- but this is inference
+  from reading how the hook mechanism is built, not a confirmed behavioral fact). If locals show up
+  empty or wrong when a script clearly has some in scope, this is the first thing to check --
+  trying `level=2` is the natural next step.
+- **Not live-tested at all** -- everything above is build-verified only, same caveat as the rest of
+  this session, but doubly worth calling out here: this is by far the most novel/complex mechanism
+  built this session (a real interpreter-hook-driven pause, not just new bindings or UI), the most
+  likely single thing to behave subtly differently than reasoned through once actually run.
+
 ## HUD subsystem: read/write/hide the four vanilla HUD elements (2026-09-15)
 
 New `client/HudManager.java` + `mixin/OverlayMessageMirrorMixin.java`, six new `ardor.accesswidener`

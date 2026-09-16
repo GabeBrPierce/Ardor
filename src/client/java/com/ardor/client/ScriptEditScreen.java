@@ -5,6 +5,7 @@ import com.ardor.script.ScriptStore;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.MultilineTextField;
 import net.minecraft.client.gui.components.Whence;
 import net.minecraft.client.gui.screens.Screen;
@@ -39,12 +40,24 @@ public final class ScriptEditScreen extends Screen {
     private static final int EDITOR_TOP = 34;
     private static final int FOOTER_H = 26;
     private static final int INDENT = 4;
+    private static final int PANEL_WIDTH = 200;
+    private static final int LINE_HIGHLIGHT_COLOR = 0x40FFD700;
 
     private final String scriptName;
     private String source;
     private String statusLine = "";
     private MultilineTextField textField;
     private int scrollLine;
+
+    // ---- step debugging (first pass: flat locals/globals list; a real recursive tree view with
+    // collapse glyphs, hover-tooltips-over-code, and a multi-script simultaneous view are follow-up
+    // work, not attempted here -- see TODO.md) ----
+    private boolean debugEnabled;
+    private ScriptEngine.DebugSession debugSession;
+    private int currentDebugLine = -1;
+    private int panelScroll;
+    private Button stepButton;
+    private Button stopDebugButton;
 
     private Integer completionStart;
     private List<String> completionMatches = List.of();
@@ -100,8 +113,10 @@ public final class ScriptEditScreen extends Screen {
         clearWidgets();
         // init() also runs on window resize, so the field is seeded from the held `source` (kept
         // current by the value listener), never re-read from disk -- same lesson RegionEditScreen
-        // learned about re-seeding from a source of truth on every rebuild.
-        textField = new MultilineTextField(font, width - EDITOR_LEFT - 10);
+        // learned about re-seeding from a source of truth on every rebuild. The panel is a permanent
+        // reserved column rather than something that appears/disappears with the Debug checkbox --
+        // toggling it would mean recreating textField at a new width, losing cursor/selection state.
+        textField = new MultilineTextField(font, panelLeft() - EDITOR_LEFT - 10);
         textField.setValue(source);
         recomputeDerived(source);
         // Deliberately NOT resetCompletion() here -- handleTab()'s own insertText() call fires this
@@ -114,12 +129,24 @@ public final class ScriptEditScreen extends Screen {
 
         addRenderableWidget(Button.builder(Component.literal("Run"), b -> onRun())
                 .bounds(10, 10, 55, 20).build());
+        addRenderableWidget(Checkbox.builder(Component.literal("Debug"), font)
+                .pos(70, 12).selected(debugEnabled)
+                .onValueChange((cb, v) -> debugEnabled = v).build());
         addRenderableWidget(Button.builder(Component.literal("Help"), b -> onHelp())
                 .bounds(width - 190, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Save"), b -> onSave())
                 .bounds(width - 125, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
+
+        stepButton = addRenderableWidget(Button.builder(Component.literal("Step"), b -> onStep())
+                .bounds(panelLeft(), 10, 95, 20).build());
+        stopDebugButton = addRenderableWidget(Button.builder(Component.literal("Stop Debug"), b -> onStopDebug())
+                .bounds(panelLeft() + 100, 10, 100, 20).build());
+    }
+
+    private int panelLeft() {
+        return width - PANEL_WIDTH - 10;
     }
 
     /** Saves before leaving for the docs -- Help navigates away from the editor same as Close would, so it shouldn't discard an unsaved edit to get there. */
@@ -131,13 +158,62 @@ public final class ScriptEditScreen extends Screen {
     /** Saves first (so ScriptStore/other call sites see exactly what just ran) then runs the live editor text directly, same error-reporting shape ScriptKeybinds/ScriptWheelKey already use. Screen stays open -- running is meant for iterating on a script, not a one-way trip. */
     private void onRun() {
         ScriptStore.save(scriptName, source);
+        if (debugEnabled) {
+            onDebugRun();
+            return;
+        }
         statusLine = "Running " + scriptName + ".lua";
         ScriptEngine.run(source, scriptName, error ->
                 Minecraft.getInstance().execute(() -> StatusIndicator.show("Script '" + scriptName + "' failed: " + error)));
     }
 
+    /** Starts a stepped session paused at line 1; Step advances one line at a time (see ScriptEngine.startDebug for how pausing works without blocking the client thread). Starting fresh drops any stale prior session -- it's already either finished or been abandoned if a new Run was clicked. */
+    private void onDebugRun() {
+        if (debugSession != null) ScriptEngine.cancelDebug(debugSession);
+        currentDebugLine = -1;
+        panelScroll = 0;
+        statusLine = "Debugging " + scriptName + ".lua (stepping)";
+        debugSession = ScriptEngine.startDebug(source, scriptName,
+                line -> currentDebugLine = line,
+                error -> {
+                    debugSession = null;
+                    currentDebugLine = -1;
+                    StatusIndicator.show("Script '" + scriptName + "' failed: " + error);
+                });
+    }
+
+    private void onStep() {
+        if (debugSession == null) return;
+        ScriptEngine.step(debugSession);
+        if (!debugSession.isPaused()) {
+            // Either finished cleanly or errored (the onError callback above already handles error
+            // and nulls debugSession) -- a clean finish leaves the session non-null but no longer
+            // paused, so clear it here too rather than leaving a dead handle around.
+            debugSession = null;
+            currentDebugLine = -1;
+            statusLine = "Finished " + scriptName + ".lua";
+        }
+    }
+
+    private void onStopDebug() {
+        if (debugSession == null) return;
+        ScriptEngine.cancelDebug(debugSession);
+        debugSession = null;
+        currentDebugLine = -1;
+        statusLine = "Stopped " + scriptName + ".lua";
+    }
+
     private int visibleLines() {
         return Math.max(1, (height - EDITOR_TOP - FOOTER_H) / font.lineHeight);
+    }
+
+    /** 1-based Lua source line number containing character offset `charOffset` -- a plain newline count, matching how LuaJ itself numbers lines for hook/error reporting. */
+    private int sourceLineNumber(int charOffset) {
+        int line = 1;
+        for (int i = 0; i < charOffset && i < source.length(); i++) {
+            if (source.charAt(i) == '\n') line++;
+        }
+        return line;
     }
 
     private void scrollToCursor() {
@@ -346,11 +422,20 @@ public final class ScriptEditScreen extends Screen {
     }
 
     private boolean inEditorBounds(double x, double y) {
-        return x >= EDITOR_LEFT && x <= width - 10 && y >= EDITOR_TOP && y <= height - FOOTER_H;
+        return x >= EDITOR_LEFT && x <= panelLeft() - 10 && y >= EDITOR_TOP && y <= height - FOOTER_H;
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (mouseX >= panelLeft()) {
+            int maxOffset = Math.max(0, panelRowCount() - panelVisibleRows());
+            int updated = ScrollState.scrolled(panelScroll, maxOffset, scrollY, 1);
+            if (updated != panelScroll) {
+                panelScroll = updated;
+                return true;
+            }
+            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        }
         int maxOffset = Math.max(0, textField.getLineCount() - visibleLines());
         int updated = ScrollState.scrolled(scrollLine, maxOffset, scrollY, 1);
         if (updated != scrollLine) {
@@ -363,6 +448,71 @@ public final class ScriptEditScreen extends Screen {
     private void onSave() {
         ScriptStore.save(scriptName, source);
         statusLine = "Saved " + scriptName + ".lua";
+    }
+
+    // ------------------------------------------------------------------ debug panel
+
+    private record PanelRow(String text, boolean header) {}
+
+    private static final int PANEL_ROW_H = 12; // tighter than the editor's own line height -- a dense list, not prose
+
+    /**
+     * Flat locals-then-globals list for the current pause point -- deliberately NOT the recursive
+     * tree view with collapse glyphs the full design calls for (grouped by source, indented,
+     * expandable into a table's own fields) -- that's real follow-up work, this proves the
+     * underlying step engine is correct first. "[L]"/"[G]" tags stand in for a literal padlock
+     * icon: Minecraft's bitmap font has no glyph for one, and which of locals/globals it was even
+     * meant to mark was never confirmed (the request cut off mid-sentence) -- [G] leans on the
+     * already-documented fact that globals persist across script runs while locals don't, the
+     * closest confirmed reading of "locked" available.
+     */
+    private List<PanelRow> panelRows() {
+        List<PanelRow> rows = new ArrayList<>();
+        if (debugSession == null) {
+            rows.add(new PanelRow("Check Debug, then Run, to step.", false));
+            return rows;
+        }
+        if (!debugSession.isPaused()) {
+            rows.add(new PanelRow("Running...", false));
+            return rows;
+        }
+        rows.add(new PanelRow("Locals [L]", true));
+        for (String[] kv : ScriptEngine.debugLocals(debugSession)) {
+            rows.add(new PanelRow(kv[0] + " = " + kv[1], false));
+        }
+        rows.add(new PanelRow("Globals [G] (persistent)", true));
+        for (String[] kv : ScriptEngine.debugGlobals()) {
+            rows.add(new PanelRow(kv[0] + " = " + kv[1], false));
+        }
+        return rows;
+    }
+
+    private int panelVisibleRows() {
+        return Math.max(1, (height - EDITOR_TOP - FOOTER_H) / PANEL_ROW_H);
+    }
+
+    private int panelRowCount() {
+        return panelRows().size();
+    }
+
+    private void renderDebugPanel(GuiGraphicsExtractor g) {
+        g.fill(panelLeft() - 6, EDITOR_TOP - 4, width - 4, height - FOOTER_H, 0x80000000);
+        List<PanelRow> rows = panelRows();
+        int maxOffset = Math.max(0, rows.size() - panelVisibleRows());
+        panelScroll = Math.min(panelScroll, maxOffset);
+
+        int y = EDITOR_TOP;
+        int lastRow = Math.min(rows.size(), panelScroll + panelVisibleRows());
+        for (int i = panelScroll; i < lastRow; i++) {
+            PanelRow row = rows.get(i);
+            String text = row.text();
+            if (text.length() > 34) text = text.substring(0, 31) + "..."; // rough char-count clip, not font.width-measured -- good enough ahead of the real tree view
+            g.text(font, text, panelLeft(), y, row.header() ? 0xFF569CD6 : 0xFFCCCCCC);
+            y += PANEL_ROW_H;
+        }
+        if (rows.size() > panelVisibleRows()) {
+            g.text(font, "Scroll for more.", panelLeft(), height - FOOTER_H - PANEL_ROW_H, 0xFF808080);
+        }
     }
 
     // ------------------------------------------------------------------ render
@@ -393,6 +543,15 @@ public final class ScriptEditScreen extends Screen {
                 g.fill(x0, y, x1, y + font.lineHeight, 0x803A6EA5);
             }
 
+            // currentDebugLine is a real Lua SOURCE line number (1-based, from the debug hook), not
+            // a display-line index -- only ever matches display line i when that source line hasn't
+            // been word-wrapped into more than one display line, which is the common case for a
+            // script written with reasonably short lines; a wrapped long line could highlight only
+            // its first display line. Good enough for a first pass, not attempted to fix further here.
+            if (debugSession != null && sourceLineNumber(lineBegin) == currentDebugLine) {
+                g.fill(EDITOR_LEFT - 4, y, panelLeft() - 10, y + font.lineHeight, LINE_HIGHLIGHT_COLOR);
+            }
+
             int x = EDITOR_LEFT;
             for (LuaHighlighter.Segment segment : LuaHighlighter.tokenize(lineText)) {
                 g.text(font, segment.text(), x, y, segment.color());
@@ -414,8 +573,12 @@ public final class ScriptEditScreen extends Screen {
         }
         g.text(font, statusLine, width / 2 - 60, height - 14, 0xFFAAAAAA);
         if (completionStart != null) {
-            g.text(font, "Tab: " + (completionIndex + 1) + "/" + completionMatches.size(), width - 200, height - 14, 0xFFDCDCAA);
+            g.text(font, "Tab: " + (completionIndex + 1) + "/" + completionMatches.size(), panelLeft() - 110, height - 14, 0xFFDCDCAA);
         }
+
+        stepButton.active = debugSession != null && debugSession.isPaused();
+        stopDebugButton.active = debugSession != null;
+        renderDebugPanel(g);
 
         renderSignatureHelp(g);
 
@@ -476,6 +639,16 @@ public final class ScriptEditScreen extends Screen {
             g.text(font, line, boxX, dy, 0xFFCCCCCC);
             dy += font.lineHeight + 1;
         }
+    }
+
+    @Override
+    public void onClose() {
+        // A paused session's LuaThread would otherwise just sit parked forever with no strong
+        // reference left once this screen closes -- it'd eventually self-clean (LuaJ's own 5s
+        // orphan check throws once the thread is garbage collected), but there's no reason to leave
+        // a dangling coroutine around when cancelling it here is one line.
+        if (debugSession != null) ScriptEngine.cancelDebug(debugSession);
+        super.onClose();
     }
 
     @Override
