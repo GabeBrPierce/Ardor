@@ -3,6 +3,22 @@
 Convention: this file lists only currently open work -- stubbed features, deferred asks, and known
 unfixed bugs. Entries are removed once resolved; resolved history lives in git/session logs, not here.
 
+## Three reported UI bugs fixed (2026-09-16)
+
+- **List-screen button overlap**: root cause was `FlowLayout.next()`'s `x > startX` guard, which
+  skipped the wrap check for a lone/first flowed widget -- fixed (see the TaskPlannerScreen entry
+  above for detail), applied to `ScriptListScreen`/`WheelListScreen`/`MacroListScreen`/
+  `ScriptEventListScreen`.
+- **`ScriptEditScreen`'s Step/Stop Debug buttons overlapped Help/Save/Close**: both shared the
+  y=10 top row with `panelLeft()` (width-210) sitting well left of Help's x (width-190). Moved
+  Step/Stop Debug down to `y=EDITOR_TOP` (their own row at the top of the debug panel), and pushed
+  the panel's own content down to a new `PANEL_CONTENT_TOP` (`EDITOR_TOP + 24`) so the button row
+  and the locals/globals list no longer share space.
+- **Cooldown timer moved out of chat**: `startCooldown(ticks, showBar, label)`'s `showBar` now
+  draws a real HUD element (`CooldownHud`, registered via `HudElementRegistry.addLast`) -- a
+  depleting progress bar in the top-right corner with the label above it, one row per active
+  bar-enabled cooldown, instead of a once-a-second `StatusIndicator` chat line.
+
 ## Step debugger: core engine + flat variable list shipped; the real tree-view/hover/multi-script UI is not (2026-09-16)
 
 Requested: a Debug checkbox that steps a script one line at a time, an object explorer showing every
@@ -128,10 +144,6 @@ Lua `HudManager` table.
 multiple concurrent coroutines, EventManager/ArdorUsers/PLAYER/RegionManager/ScriptManager/
 MacroManager/WheelManager tables). Four parts are knowingly approximate:
 
-- **`startCooldown(ticks, showBar, label)`'s `showBar` is not a real HUD bar** -- it prints a
-  "label: Ns remaining" `StatusIndicator` line once a second. A genuine progress element would need
-  a new HUD render layer (nothing in this codebase draws persistent overlays except
-  `QuestTrackerOverlay`); reusing that is the obvious follow-up.
 - **`kill`/`killAll`'s `autoSwapWeapon` uses a fixed material-order preference list**, not a real
   damage comparison. `ToolSelector` only ranks MINING tools (Tool component mining speed /
   correct-for-drops), which says nothing about melee damage, so there was nothing to reuse. Ignores
@@ -970,11 +982,13 @@ already established elsewhere in this codebase.
   pixels, not raw screen pixels -- fullscreen alone doesn't guarantee enough width). New
   `FlowLayout` (reusable) auto-wraps that row to a second line instead of overlapping; the task
   list below it now starts from wherever the (possibly-wrapped) row actually ends, not a fixed
-  constant. **Not applied to every other screen** -- RegionListScreen/EventConfigScreen/
-  FetchItemsScreen/ItemSourcesScreen have much lighter button rows where the same collision is far
-  less likely (would need an unusually narrow width); only the confirmed, reproducible offender was
-  fixed this pass. Worth a follow-up pass with FlowLayout if any of those turn out to have the same
-  problem in practice.
+  constant. RegionListScreen/EventConfigScreen/FetchItemsScreen/ItemSourcesScreen already had
+  dynamic row-start logic and didn't need it. `ScriptListScreen`/`WheelListScreen`/
+  `MacroListScreen`/`ScriptEventListScreen` (added in the 2026-09-15/16 scripting-language pass)
+  DID have the same bug -- `FlowLayout.next()` itself had a second bug (a `x > startX` guard that
+  skipped the wrap check for a lone/first flowed widget, letting ScriptListScreen's "New" button
+  overlap the fixed-position Help button), fixed alongside converting all four screens' row-start
+  constants to the same dynamic `flow.bottom() + 4` pattern (2026-09-16).
 
 ## Not yet live-tested (2026-09-13, earlier this session)
 

@@ -33,9 +33,20 @@ public final class FlowLayout {
         this.y = startY;
     }
 
-    /** Returns {x, y} for a widget of width `w` -- wraps to a new row first if it wouldn't fit (and at least one widget is already on the current row, so a single widget wider than maxX-startX still gets placed rather than looping forever). */
+    /**
+     * Returns {x, y} for a widget of width `w` -- wraps to a new row first if it wouldn't fit at
+     * the current x. Wraps even when this is the very first widget on the row (a lone widget placed
+     * far enough right by its own maxX/startX gap can still overflow just as easily as a second
+     * widget can -- confirmed live: ScriptListScreen's lone "New" button, the only thing ever
+     * flowed through its own FlowLayout instance, silently overlapped a fixed-position Help button
+     * at narrower widths because the old `x > startX` guard skipped the wrap check entirely for a
+     * first/only item). Wrapping only ever resets x back to startX, never loops or recurses, so
+     * there's no infinite-loop risk to guard against in the first place -- a widget still too wide
+     * even fresh off startX just renders overflowing on its own row, which is the one case wrapping
+     * genuinely can't help.
+     */
     public int[] next(int w) {
-        if (x + w > maxX && x > startX) {
+        if (x + w > maxX) {
             x = startX;
             y += rowHeight + gapY;
         }

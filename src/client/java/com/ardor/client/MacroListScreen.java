@@ -21,11 +21,11 @@ import java.util.List;
  */
 public final class MacroListScreen extends Screen {
 
-    private static final int ROW_TOP = 60;
     private static final int ROW_H = 20;
 
     private EditBox nameBox;
     private List<String> macros = List.of();
+    private int rowTop = 60;
 
     public MacroListScreen() {
         super(Component.literal("Macros"));
@@ -49,6 +49,7 @@ public final class MacroListScreen extends Screen {
                 MacroRecorder.stop();
                 rebuildAllWidgets();
             }).bounds(10, 10, 150, 20).build());
+            rowTop = 60;
         } else {
             nameBox = new EditBox(font, 10, 10, 300, 20, Component.literal("Name"));
             nameBox.setHint(Component.literal("Macro name"));
@@ -59,11 +60,12 @@ public final class MacroListScreen extends Screen {
             FlowLayout flow = new FlowLayout(320, 10, width - 75, 20, 4, 4);
             int[] pos = flow.next(90);
             addRenderableWidget(Button.builder(Component.literal("Record"), b -> onRecord()).bounds(pos[0], pos[1], 90, 20).build());
+            rowTop = Math.max(40, flow.bottom() + 4);
         }
 
         macros = MacroStore.list();
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (String name : macros) {
             addRenderableWidget(Button.builder(Component.literal("Play"), b -> onPlay(name))
                     .bounds(390, y, 55, ROW_H - 2).build());
@@ -99,13 +101,13 @@ public final class MacroListScreen extends Screen {
             g.text(font, "Recording... move around, then Stop Recording (or press its keybind, unbound by default).", 10, 34, 0xFFFF5555);
         }
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (String name : macros) {
             g.text(font, name, 10, y + 5, 0xFFFFFFFF);
             y += ROW_H;
         }
         if (macros.isEmpty()) {
-            g.text(font, "No macros yet -- type a name and press Record.", 10, ROW_TOP, 0xFF808080);
+            g.text(font, "No macros yet -- type a name and press Record.", 10, rowTop, 0xFF808080);
         }
 
         super.extractRenderState(g, mouseX, mouseY, partialTick);

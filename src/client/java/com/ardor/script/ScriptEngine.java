@@ -1248,17 +1248,38 @@ public final class ScriptEngine {
     // ------------------------------------------------------------------ cooldowns
 
     private static final Map<String, Integer> COOLDOWNS = new LinkedHashMap<>();
+    private static final Map<String, Integer> COOLDOWN_TOTALS = new LinkedHashMap<>();
     private static final Set<String> COOLDOWN_BARS = new HashSet<>();
     private static boolean cooldownTickerRegistered;
     private static int cooldownAutoId;
 
-    /** Named countdown in client ticks. showBar reuses StatusIndicator once a second rather than a real HUD element -- see TODO.md. Returns the label (an auto-generated one if blank) so cooldownRemaining() has something to ask about. */
+    public record CooldownBar(String label, int remaining, int total) {}
+
+    /** Named countdown in client ticks. showBar draws the label + depleting HUD bar in the top right (see CooldownHud). Returns the label (an auto-generated one if blank) so cooldownRemaining() has something to ask about. */
     private static String startCooldown(int ticks, boolean showBar, String label) {
         String key = label.isBlank() ? "cooldown_" + (++cooldownAutoId) : label;
-        COOLDOWNS.put(key, Math.max(ticks, 0));
-        if (showBar) COOLDOWN_BARS.add(key); else COOLDOWN_BARS.remove(key);
+        int clamped = Math.max(ticks, 0);
+        COOLDOWNS.put(key, clamped);
+        if (showBar) {
+            COOLDOWN_BARS.add(key);
+            COOLDOWN_TOTALS.put(key, Math.max(clamped, 1));
+        } else {
+            COOLDOWN_BARS.remove(key);
+            COOLDOWN_TOTALS.remove(key);
+        }
         ensureCooldownTicker();
         return key;
+    }
+
+    /** Bar-enabled cooldowns currently counting down, in the order they were started -- backs CooldownHud's render loop. */
+    public static List<CooldownBar> activeCooldownBars() {
+        List<CooldownBar> bars = new ArrayList<>();
+        for (var entry : COOLDOWNS.entrySet()) {
+            if (COOLDOWN_BARS.contains(entry.getKey())) {
+                bars.add(new CooldownBar(entry.getKey(), entry.getValue(), COOLDOWN_TOTALS.getOrDefault(entry.getKey(), entry.getValue())));
+            }
+        }
+        return bars;
     }
 
     private static void ensureCooldownTicker() {
@@ -1280,14 +1301,12 @@ public final class ScriptEngine {
             var entry = entries.next();
             int remaining = entry.getValue() - 1;
             if (remaining <= 0) {
-                if (COOLDOWN_BARS.remove(entry.getKey())) StatusIndicator.show(entry.getKey() + ": ready");
+                COOLDOWN_BARS.remove(entry.getKey());
+                COOLDOWN_TOTALS.remove(entry.getKey());
                 entries.remove();
                 continue;
             }
             entry.setValue(remaining);
-            if (remaining % 20 == 0 && COOLDOWN_BARS.contains(entry.getKey())) {
-                StatusIndicator.show(entry.getKey() + ": " + (remaining / 20) + "s remaining");
-            }
         }
     }
 

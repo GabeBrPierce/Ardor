@@ -38,6 +38,10 @@ public final class ScriptEditScreen extends Screen {
 
     private static final int EDITOR_LEFT = 10;
     private static final int EDITOR_TOP = 34;
+    // The debug panel has its own Step/Stop Debug button row (it sits under the top row's Help/
+    // Save/Close, which occupy the panel's X range) -- its content starts one row lower than the
+    // main editor's.
+    private static final int PANEL_CONTENT_TOP = EDITOR_TOP + 24;
     private static final int FOOTER_H = 26;
     private static final int INDENT = 4;
     private static final int PANEL_WIDTH = 200;
@@ -140,9 +144,9 @@ public final class ScriptEditScreen extends Screen {
                 .bounds(width - 65, 10, 55, 20).build());
 
         stepButton = addRenderableWidget(Button.builder(Component.literal("Step"), b -> onStep())
-                .bounds(panelLeft(), 10, 95, 20).build());
+                .bounds(panelLeft(), EDITOR_TOP, 95, 20).build());
         stopDebugButton = addRenderableWidget(Button.builder(Component.literal("Stop Debug"), b -> onStopDebug())
-                .bounds(panelLeft() + 100, 10, 100, 20).build());
+                .bounds(panelLeft() + 100, EDITOR_TOP, 100, 20).build());
     }
 
     private int panelLeft() {
@@ -488,7 +492,7 @@ public final class ScriptEditScreen extends Screen {
     }
 
     private int panelVisibleRows() {
-        return Math.max(1, (height - EDITOR_TOP - FOOTER_H) / PANEL_ROW_H);
+        return Math.max(1, (height - PANEL_CONTENT_TOP - FOOTER_H) / PANEL_ROW_H);
     }
 
     private int panelRowCount() {
@@ -496,12 +500,12 @@ public final class ScriptEditScreen extends Screen {
     }
 
     private void renderDebugPanel(GuiGraphicsExtractor g) {
-        g.fill(panelLeft() - 6, EDITOR_TOP - 4, width - 4, height - FOOTER_H, 0x80000000);
+        g.fill(panelLeft() - 6, PANEL_CONTENT_TOP - 4, width - 4, height - FOOTER_H, 0x80000000);
         List<PanelRow> rows = panelRows();
         int maxOffset = Math.max(0, rows.size() - panelVisibleRows());
         panelScroll = Math.min(panelScroll, maxOffset);
 
-        int y = EDITOR_TOP;
+        int y = PANEL_CONTENT_TOP;
         int lastRow = Math.min(rows.size(), panelScroll + panelVisibleRows());
         for (int i = panelScroll; i < lastRow; i++) {
             PanelRow row = rows.get(i);

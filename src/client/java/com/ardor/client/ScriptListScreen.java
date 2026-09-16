@@ -17,11 +17,11 @@ import java.util.List;
  */
 public final class ScriptListScreen extends Screen {
 
-    private static final int ROW_TOP = 40;
     private static final int ROW_H = 20;
 
     private EditBox nameBox;
     private List<String> scripts = List.of();
+    private int rowTop = 40;
 
     public ScriptListScreen() {
         super(Component.literal("Scripts"));
@@ -49,9 +49,10 @@ public final class ScriptListScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
 
+        rowTop = Math.max(40, flow.bottom() + 4);
         scripts = ScriptStore.list();
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (String name : scripts) {
             addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new ScriptEditScreen(name)))
                     .bounds(390, y, 55, ROW_H - 2).build());
@@ -75,13 +76,13 @@ public final class ScriptListScreen extends Screen {
         g.fill(0, 0, width, height, 0xC0101010);
         g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (String name : scripts) {
             g.text(font, name, 10, y + 5, 0xFFFFFFFF);
             y += ROW_H;
         }
         if (scripts.isEmpty()) {
-            g.text(font, "No scripts yet -- type a name and press New.", 10, ROW_TOP, 0xFF808080);
+            g.text(font, "No scripts yet -- type a name and press New.", 10, rowTop, 0xFF808080);
         }
 
         super.extractRenderState(g, mouseX, mouseY, partialTick);
