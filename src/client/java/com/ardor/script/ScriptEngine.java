@@ -1,6 +1,7 @@
 package com.ardor.script;
 
 import com.ardor.bridge.PeerClient;
+import com.ardor.client.ActivityTracker;
 import com.ardor.client.ArdorMasterToggle;
 import com.ardor.client.ArdorWheelScreen;
 import com.ardor.client.CheckBoxPromptScreen;
@@ -454,6 +455,8 @@ public final class ScriptEngine {
                     case "saturation" -> LuaValue.valueOf(player.getFoodData().getSaturationLevel());
                     case "freeInventorySlots" -> LuaValue.valueOf(freeInventorySlots(player.getInventory()));
                     case "gameMode" -> LuaValue.valueOf(Minecraft.getInstance().gameMode.getPlayerMode().getName());
+                    case "idleTicks" -> LuaValue.valueOf(ActivityTracker.ticksSinceInput());
+                    case "ticksSinceMoved" -> LuaValue.valueOf(ActivityTracker.ticksSincePlayerMoved());
                     default -> LuaValue.NIL;
                 };
             }

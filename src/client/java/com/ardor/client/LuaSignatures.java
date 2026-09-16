@@ -43,6 +43,8 @@ final class LuaSignatures {
             Map.entry("cooldownRemaining", new FunctionDoc("cooldownRemaining(label)", "Remaining time on a startCooldown timer.")),
             Map.entry("console.log", new FunctionDoc("console.log(text)", "Shows text as a local-only message. Same as echo.")),
             Map.entry("PLAYER.executeScript", new FunctionDoc("PLAYER.executeScript(name)", "Runs a saved script by name. Same as runScript.")),
+            Map.entry("PLAYER.idleTicks", new FunctionDoc("PLAYER.idleTicks", "Ticks since real keyboard/mouse input from a human. Ardor's own driving never resets it.")),
+            Map.entry("PLAYER.ticksSinceMoved", new FunctionDoc("PLAYER.ticksSinceMoved", "Ticks since the player's position last changed, human- or script-driven.")),
             Map.entry("RegionManager.get", new FunctionDoc("RegionManager.get(pos)", "Region names containing pos. Same as getRegions.")),
             Map.entry("RegionManager.create", new FunctionDoc("RegionManager.create(name, posA, posB)", "Creates/resizes a region between two corner tables.")),
             Map.entry("RegionManager.delete", new FunctionDoc("RegionManager.delete(name)", "Deletes a region (not the implicit \"global\" one).")),

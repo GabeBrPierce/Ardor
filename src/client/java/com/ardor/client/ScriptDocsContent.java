@@ -309,7 +309,30 @@ final class ScriptDocsContent {
                 > getMenu()
 
                 Returns the name of whichever container menu is currently open (a chest, a crafting \
-                table, ...), or nil if only the player's own inventory is open."""),
+                table, ...), or nil if only the player's own inventory is open.
+
+                > PLAYER.idleTicks
+                > PLAYER.ticksSinceMoved
+
+                Two different idle timers -- don't treat them as the same thing. idleTicks counts \
+                ticks since a HUMAN last touched the keyboard or mouse, read straight from the game's \
+                own hardware input handlers. Nothing Ardor does resets it: scripted movement, \
+                PLAYER.keybinds.activate, macros and pathfinding all leave it climbing, because none \
+                of that is a person at the controls.
+
+                ticksSinceMoved counts ticks since the player's position last changed at all, no \
+                matter who caused it -- a script walking you somewhere resets it just as a human \
+                would.
+
+                So the two disagree exactly when it matters. A script pathfinding across the world \
+                keeps ticksSinceMoved at 0 forever while idleTicks climbs, which is how you notice \
+                nobody is actually there. The reverse case -- a human standing perfectly still \
+                reading chat -- shows a climbing ticksSinceMoved but an idleTicks that keeps \
+                resetting.
+
+                > if PLAYER.idleTicks > 20 * 60 then
+                >     echo("no human input for a minute")
+                > end"""),
 
         new Section("keybinds", "Controlling Any Keybind", """
                 PLAYER.keybinds reaches every registered keybind -- this mod's own, vanilla's, or \
@@ -515,7 +538,12 @@ final class ScriptDocsContent {
                 > PLAYER.canFly
                 > PLAYER.freeInventorySlots
                 > PLAYER.gameMode
+                > PLAYER.idleTicks
+                > PLAYER.ticksSinceMoved
                 > PLAYER.executeScript(name)
+
+                idleTicks and ticksSinceMoved are two separate idle timers and are explained under \
+                Timing & Input.
 
                 executeScript is the same as runScript -- included on PLAYER so a script can read \
                 PLAYER.health and trigger another script from the same place without a second global \
@@ -580,7 +608,9 @@ final class ScriptDocsContent {
                 > MacroManager.list / .delete / .play
                 > pause(ticks)  -- alias of wait
                 > PLAYER.health / .hunger / .saturation / .canFly / .freeInventorySlots / .gameMode / .executeScript
+                > PLAYER.idleTicks  -- ticks since real human keyboard/mouse input
                 > PLAYER.keybinds.activate / .deactivate / .get / .query
+                > PLAYER.ticksSinceMoved  -- ticks since the player's position last changed
                 > promptLLM(text, hierarchyLevel)
                 > putInHotbar(slot, hotbarSlot)
                 > queryEntity(regex, dist, pos)
