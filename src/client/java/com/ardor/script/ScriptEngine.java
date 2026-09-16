@@ -3,8 +3,12 @@ package com.ardor.script;
 import com.ardor.bridge.PeerClient;
 import com.ardor.client.ArdorMasterToggle;
 import com.ardor.client.ArdorWheelScreen;
+import com.ardor.client.CheckBoxPromptScreen;
+import com.ardor.client.KeybindControl;
+import com.ardor.client.MultipleChoicePromptScreen;
 import com.ardor.client.ScriptWheelKey;
 import com.ardor.client.StatusIndicator;
+import com.ardor.client.TextInputPromptScreen;
 import com.ardor.config.ArdorConfig;
 import com.ardor.container.CacheSearch;
 import com.ardor.container.CommandCooldowns;
@@ -421,6 +425,7 @@ public final class ScriptEngine {
         globals.set("MacroManager", buildMacroManagerTable(runMacro));
         globals.set("WheelManager", buildWheelManagerTable());
         globals.set("EventManager", buildEventManagerTable());
+        globals.set("UserPromptManager", buildUserPromptManagerTable());
     }
 
     // ------------------------------------------------------------------ tables
@@ -428,6 +433,7 @@ public final class ScriptEngine {
     private static LuaTable buildPlayerTable(LuaValue runScript) {
         LuaTable table = new LuaTable();
         table.set("executeScript", runScript);
+        table.set("keybinds", buildKeybindsTable());
         LuaTable meta = new LuaTable();
         meta.set(LuaValue.INDEX, new TwoArgFunction() {
             @Override
@@ -446,6 +452,36 @@ public final class ScriptEngine {
             }
         });
         table.setmetatable(meta);
+        return table;
+    }
+
+    /** PLAYER.keybinds -- activate/deactivate/list/search ANY registered keybind by name, not just this mod's own. See KeybindControl for why activate() has to re-assert every tick rather than set-and-forget. */
+    private static LuaTable buildKeybindsTable() {
+        LuaTable table = new LuaTable();
+        table.set("activate", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue name) {
+                return LuaValue.valueOf(KeybindControl.activate(name.checkjstring()));
+            }
+        });
+        table.set("deactivate", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue name) {
+                return LuaValue.valueOf(KeybindControl.deactivate(name.checkjstring()));
+            }
+        });
+        table.set("get", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                return stringArray(KeybindControl.names());
+            }
+        });
+        table.set("query", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue regex) {
+                return stringArray(KeybindControl.query(regex.optjstring(".*")));
+            }
+        });
         return table;
     }
 
@@ -653,6 +689,55 @@ public final class ScriptEngine {
         };
         Minecraft mc = Minecraft.getInstance();
         if (mc.isSameThread()) call.run(); else mc.execute(call);
+    }
+
+    // ------------------------------------------------------------------ user prompts
+
+    /**
+     * Blocking prompts to the PLAYER (not the LLM) -- text input, any-number checkboxes, or a
+     * single multiple-choice pick. Each opens a screen and suspends the calling script exactly
+     * like pause()/home() until Submit or Cancel resolves it; Cancel (or closing the screen) is
+     * Lua nil, distinguishable from a real answer.
+     */
+    private static LuaTable buildUserPromptManagerTable() {
+        LuaTable table = new LuaTable();
+        table.set("textInput", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue question) {
+                String q = question.checkjstring();
+                return suspend(done -> Minecraft.getInstance().execute(() ->
+                        Minecraft.getInstance().setScreen(new TextInputPromptScreen(q, result ->
+                                done.accept(result == null ? LuaValue.NIL : LuaValue.valueOf(result))))));
+            }
+        });
+        table.set("checkbox", new TwoArgFunction() {
+            @Override
+            public LuaValue call(LuaValue question, LuaValue optionsTable) {
+                String q = question.checkjstring();
+                List<String> options = luaStringList(optionsTable);
+                return suspend(done -> Minecraft.getInstance().execute(() ->
+                        Minecraft.getInstance().setScreen(new CheckBoxPromptScreen(q, options, result ->
+                                done.accept(result == null ? LuaValue.NIL : stringArray(result))))));
+            }
+        });
+        table.set("multipleChoice", new TwoArgFunction() {
+            @Override
+            public LuaValue call(LuaValue question, LuaValue optionsTable) {
+                String q = question.checkjstring();
+                List<String> options = luaStringList(optionsTable);
+                return suspend(done -> Minecraft.getInstance().execute(() ->
+                        Minecraft.getInstance().setScreen(new MultipleChoicePromptScreen(q, options, result ->
+                                done.accept(result == null ? LuaValue.NIL : LuaValue.valueOf(result))))));
+            }
+        });
+        return table;
+    }
+
+    private static List<String> luaStringList(LuaValue table) {
+        List<String> values = new ArrayList<>();
+        LuaTable t = table.checktable();
+        for (int i = 1; i <= t.length(); i++) values.add(t.get(i).tojstring());
+        return values;
     }
 
     // ------------------------------------------------------------------ peers

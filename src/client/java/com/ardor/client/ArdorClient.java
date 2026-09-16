@@ -75,6 +75,7 @@ public class ArdorClient implements ClientModInitializer {
         ScriptKeybinds.register();
         MacroKeybinds.register();
         MacroStopRecordingKey.register();
+        KeybindControl.register();
         TaskPlannerKey.register();
         PanicStopKey.register();
         PanicStopCommand.register();
