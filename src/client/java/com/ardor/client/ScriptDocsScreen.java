@@ -77,8 +77,15 @@ public final class ScriptDocsScreen extends Screen {
                 boolean isCode = block.stripLeading().startsWith(">");
                 if (isCode) {
                     for (String codeLine : block.split("\n")) {
-                        String text = codeLine.strip();
-                        if (text.startsWith(">")) text = text.substring(1).strip();
+                        // Strip only the "> " marker itself, not all leading whitespace -- a plain
+                        // strip() here ate any indentation an example deliberately used to show
+                        // nested Lua blocks (if/for bodies), flattening every example to one column.
+                        String text = codeLine.stripTrailing();
+                        int marker = text.indexOf('>');
+                        if (marker >= 0 && text.substring(0, marker).isBlank()) {
+                            text = text.substring(marker + 1);
+                            if (!text.isEmpty() && text.charAt(0) == ' ') text = text.substring(1);
+                        }
                         built.add(new Line(FormattedCharSequence.forward(text, net.minecraft.network.chat.Style.EMPTY), CODE_COLOR, y, false));
                         y += font.lineHeight + 1;
                     }

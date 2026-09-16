@@ -27,9 +27,9 @@ final class ScriptDocsContent {
                 > echo("hello from a script")
                 > goto(100, 64, 200)
 
-                This screen is a reference, not a Lua tutorial -- if you've never used Lua before, any \
-                general Lua 5.1 guide covers the syntax (LuaJ implements 5.1 semantics); everything \
-                specific to Ardor is documented here.
+                Never touched a programming language before? Read the next section, Lua Basics, first \
+                -- it's short and covers everything you need before the function reference below will \
+                make sense.
 
                 The editor itself helps while you type: a small popup shows a function's parameters \
                 as you fill in its arguments (see Documenting Your Own Functions below for making your \
@@ -39,6 +39,112 @@ final class ScriptDocsContent {
                 whole script, so it will read as broken while you're mid-way through typing an \
                 incomplete line (an unclosed bracket, say) -- normal, and it clears the moment the \
                 line is finished, same as any code editor."""),
+
+        new Section("basics", "Lua Basics", """
+                Lua reads a lot like plain instructions. Here's everything you need to write real \
+                scripts -- not the whole language, just the parts you'll actually use.
+
+                COMMENTS. Anything after -- is ignored, for your own notes:
+
+                > -- this whole line does nothing
+                > goto(100, 64, 200) -- this part still runs, the comment is just at the end
+
+                VARIABLES. A name that holds a value. No need to declare a type -- Lua figures it out:
+
+                > local hp = 20
+                > local name = "zombie"
+                > local isNight = true
+
+                local just means "this variable belongs to this script" -- always use it unless you \
+                specifically want a value to persist across script runs (see Persistent State above).
+
+                MATH AND TEXT. The usual + - * / for numbers. Text ("strings") gets stuck together \
+                with .. instead of +:
+
+                > local total = 5 + 3
+                > local msg = "Health: " .. hp .. "/20"
+
+                IF/THEN. Runs a block only when something's true. else is optional:
+
+                > if hp < 10 then
+                >     echo("getting low!")
+                > else
+                >     echo("still okay")
+                > end
+
+                Comparisons: == (equal), ~= (not equal, not !=), < > <= >=. Combine conditions with \
+                and / or:
+
+                > if hp < 10 and isNight then
+                >     echo("low health AND it's dark -- be careful")
+                > end
+
+                LOOPS. for repeats a fixed number of times; while repeats until a condition is false:
+
+                > for i = 1, 5 do
+                >     echo("this is loop " .. i)
+                > end
+                >
+                > local tries = 0
+                > while tries < 3 do
+                >     echo("attempt " .. tries)
+                >     tries = tries + 1
+                > end
+
+                TABLES. Lua's one data-structure-for-everything -- a list, a lookup, or both at once. \
+                Square brackets index a list (starting at 1, not 0); dot or square-bracket names index \
+                a lookup:
+
+                > local items = {"stick", "torch", "apple"}
+                > echo(items[1])  -- "stick"
+                >
+                > local player = {health = 20, name = "Steve"}
+                > echo(player.health)  -- 20
+                > echo(player["health"])  -- same thing, different syntax
+
+                Every query function in this reference (queryEntity, queryItemInStorage, ...) hands \
+                you back a table, so this matters -- see below.
+
+                FUNCTIONS. A named, reusable block. Anything after return is handed back to whoever \
+                called it:
+
+                > function double(n)
+                >     return n * 2
+                > end
+                >
+                > echo(double(21))  -- prints 42
+
+                Writing your own functions is how you build anything bigger than a one-off script -- \
+                and if you comment one the right way, it gets the same tooltip in this editor the \
+                built-in functions do (see Documenting Your Own Functions below).
+
+                nil IS "NOTHING". Lua's version of empty/missing/doesn't-exist. Checking `if x then` \
+                is false for both nil and false -- everything else counts as true, including 0 and "":
+
+                > local target = queryEntity("zombie", 16)
+                > if target then
+                >     kill(target)
+                > else
+                >     echo("no zombie nearby")
+                > end
+
+                PUTTING IT TOGETHER -- a script that fights the nearest zombie if it's night and you're \
+                below half health, otherwise just says hello:
+
+                > if PLAYER.health < 10 then
+                >     local z = queryEntity("zombie", 16)
+                >     if z then
+                >         echo("fighting a zombie at low health, wish me luck")
+                >         kill(z)
+                >     else
+                >         echo("low health but nothing nearby -- staying put")
+                >     end
+                > else
+                >     say("all good over here")
+                > end
+
+                That's genuinely most of what you need. The rest of this reference is just more \
+                functions to call from inside blocks like the ones above."""),
 
         new Section("globals", "Persistent State", """
                 Every script runs against ONE shared Lua environment for the whole client session -- \
