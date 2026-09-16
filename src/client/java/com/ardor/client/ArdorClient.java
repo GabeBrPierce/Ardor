@@ -82,6 +82,7 @@ public class ArdorClient implements ClientModInitializer {
         PauseToggleKey.register();
         ArdorMasterToggleKey.register();
         QuestTrackerOverlay.register();
+        HudManager.register();
         PlacementRecorder.register();
 
         // Xaero's World Map integration (com.ardor.xaero.*) needs no explicit call here --

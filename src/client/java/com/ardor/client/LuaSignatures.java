@@ -61,6 +61,23 @@ final class LuaSignatures {
             Map.entry("WheelManager.delete", new FunctionDoc("WheelManager.delete(name)", "Deletes a named wheel.")),
             Map.entry("EventManager.setEvent", new FunctionDoc("EventManager.setEvent(name, intervalTicks, predicateFn)", "Registers/replaces a script-defined event.")),
             Map.entry("EventManager.getEvent", new FunctionDoc("EventManager.getEvent(name)", "Returns a handle with :subscribe(fn)/:unsubscribe(fn).")),
-            Map.entry("EventManager.queryEvent", new FunctionDoc("EventManager.queryEvent(regex)", "Registered event names matching regex."))
+            Map.entry("EventManager.queryEvent", new FunctionDoc("EventManager.queryEvent(regex)", "Registered event names matching regex.")),
+            Map.entry("PLAYER.keybinds.activate", new FunctionDoc("PLAYER.keybinds.activate(name)", "Holds down any registered keybind by translation-key name.")),
+            Map.entry("PLAYER.keybinds.deactivate", new FunctionDoc("PLAYER.keybinds.deactivate(name)", "Releases a keybind previously activated.")),
+            Map.entry("PLAYER.keybinds.get", new FunctionDoc("PLAYER.keybinds.get()", "Translation-key names of every registered keybind.")),
+            Map.entry("PLAYER.keybinds.query", new FunctionDoc("PLAYER.keybinds.query(regex)", "Keybind names matching regex.")),
+            Map.entry("UserPromptManager.textInput", new FunctionDoc("UserPromptManager.textInput(question)", "Blocks for a typed answer, or nil if cancelled.")),
+            Map.entry("UserPromptManager.checkbox", new FunctionDoc("UserPromptManager.checkbox(question, options)", "Blocks for any number of picks, or nil if cancelled.")),
+            Map.entry("UserPromptManager.multipleChoice", new FunctionDoc("UserPromptManager.multipleChoice(question, options)", "Blocks for exactly one pick, or nil if cancelled.")),
+            Map.entry("HudManager.actionBar", new FunctionDoc("HudManager.actionBar()", "Current action-bar {text, ticksRemaining}, or nil.")),
+            Map.entry("HudManager.bossBars", new FunctionDoc("HudManager.bossBars()", "Array of {name, progress, color} for active boss bars.")),
+            Map.entry("HudManager.scoreboard", new FunctionDoc("HudManager.scoreboard()", "{title, entries={{name,score},...}}, or nil.")),
+            Map.entry("HudManager.title", new FunctionDoc("HudManager.title()", "Current {title, subtitle}, or nil if neither is showing.")),
+            Map.entry("HudManager.setActionBarText", new FunctionDoc("HudManager.setActionBarText(text)", "Shows real vanilla action-bar text.")),
+            Map.entry("HudManager.setTitle", new FunctionDoc("HudManager.setTitle(title, subtitle)", "Shows real vanilla title/subtitle text.")),
+            Map.entry("HudManager.setActionBarVisible", new FunctionDoc("HudManager.setActionBarVisible(visible)", "Toggles vanilla's own action-bar rendering.")),
+            Map.entry("HudManager.setBossBarVisible", new FunctionDoc("HudManager.setBossBarVisible(visible)", "Toggles vanilla's own boss-bar rendering.")),
+            Map.entry("HudManager.setScoreboardVisible", new FunctionDoc("HudManager.setScoreboardVisible(visible)", "Toggles vanilla's own scoreboard sidebar rendering.")),
+            Map.entry("HudManager.setTitleVisible", new FunctionDoc("HudManager.setTitleVisible(visible)", "Toggles vanilla's own title/subtitle rendering."))
     );
 }

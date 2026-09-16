@@ -29,7 +29,8 @@ final class LuaHighlighter {
             "queryItemInStorage", "queryItemOnGround", "queryItemInInventory", "queryEntity",
             "swapItems", "putInHotbar", "getRegions", "kill", "killAll", "breakBlocksWithin",
             "commandLLM", "promptLLM", "echo", "console", "saveToLogs", "runScript", "runMacro",
-            "PLAYER", "RegionManager", "ScriptManager", "MacroManager", "WheelManager", "EventManager", "ArdorUsers");
+            "PLAYER", "RegionManager", "ScriptManager", "MacroManager", "WheelManager", "EventManager", "ArdorUsers",
+            "UserPromptManager", "HudManager");
 
     private static final Set<String> KNOWN_NAMES_SET = Set.copyOf(KNOWN_NAMES);
 

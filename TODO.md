@@ -3,6 +3,35 @@
 Convention: this file lists only currently open work -- stubbed features, deferred asks, and known
 unfixed bugs. Entries are removed once resolved; resolved history lives in git/session logs, not here.
 
+## HUD subsystem: read/write/hide the four vanilla HUD elements (2026-09-15)
+
+New `client/HudManager.java` + `mixin/OverlayMessageMirrorMixin.java`, six new `ardor.accesswidener`
+entries, five new `ArdorConfig` booleans (all default true), a new "HUD" settings category, and a new
+Lua `HudManager` table.
+
+- **Scoreboard and boss bars are read-only -- no write side, on purpose.** The action bar and
+  title/subtitle are plain `Component` fields with real public setters, so writing them is a one-line
+  call that behaves exactly like a server packet. A scoreboard/boss bar is not: faking one means
+  constructing the server-driven object graph client-side (an `Objective` registered in the synced
+  `Scoreboard` with its own `PlayerScores`, or a `LerpingBossEvent` keyed by UUID inserted into
+  `BossHealthOverlay.events`), which the next real sync packet would then overwrite or fight with.
+  Not attempted rather than shipped half-working. `HudManager.setScoreboardVisible`/`setBossBarVisible`
+  only hide vanilla's own rendering; there is no `setScoreboard`/`setBossBar`.
+- **`StatusIndicator.show` no longer touches the action bar at all.** It now writes to the chat log
+  (`gui.getChat().addClientSystemMessage`) instead of `player.sendOverlayMessage`. Same signature, so
+  none of the dozens of call sites changed -- but this is a real, visible behavior change everywhere
+  `[Ardor]` status text used to appear, and it's the one thing to eyeball first when running this.
+- **Not live-tested.** If the game fails to LAUNCH after this, `OverlayMessageMirrorMixin` is the
+  first suspect -- re-check `Gui.setOverlayMessage(Component, boolean)`'s exact signature against the
+  real jar (`javap -p -s` on `net/minecraft/client/gui/Gui.class`), since a mixin target mismatch is
+  a hard startup failure, not a silent no-op. Second suspect: the six accesswidener entries -- a
+  wrong field name or descriptor there also fails at load. Both were verified against the real
+  26.1.2 client jar before shipping, but neither has been run.
+- **Not added to the in-mod Lua reference.** The new `HudManager` table is bound and callable but has
+  no entries in `ScriptDocsContent`, `LuaSignatures`, or `LuaHighlighter.KNOWN_NAMES` -- so no
+  syntax highlighting, no Tab-completion, and no parameter-hint popup for it in `ScriptEditScreen`.
+  (`UserPromptManager` from earlier this session has the same gap; worth doing both at once.)
+
 ## ScriptEditScreen: parameter-hint popup, doc-comments for user functions, live syntax status (2026-09-15)
 
 - **Parameter-hint tooltip.** New `LuaSignatures` (built-in function/method signatures + one-line

@@ -4,6 +4,7 @@ import com.ardor.bridge.PeerClient;
 import com.ardor.client.ArdorMasterToggle;
 import com.ardor.client.ArdorWheelScreen;
 import com.ardor.client.CheckBoxPromptScreen;
+import com.ardor.client.HudManager;
 import com.ardor.client.KeybindControl;
 import com.ardor.client.MultipleChoicePromptScreen;
 import com.ardor.client.ScriptWheelKey;
@@ -426,6 +427,7 @@ public final class ScriptEngine {
         globals.set("WheelManager", buildWheelManagerTable());
         globals.set("EventManager", buildEventManagerTable());
         globals.set("UserPromptManager", buildUserPromptManagerTable());
+        globals.set("HudManager", buildHudManagerTable());
     }
 
     // ------------------------------------------------------------------ tables
@@ -738,6 +740,119 @@ public final class ScriptEngine {
         LuaTable t = table.checktable();
         for (int i = 1; i <= t.length(); i++) values.add(t.get(i).tojstring());
         return values;
+    }
+
+    // ------------------------------------------------------------------ hud
+
+    /**
+     * The four server-driven vanilla HUD elements (action bar, boss bars, scoreboard sidebar,
+     * title/subtitle) -- see client/HudManager.java. Reads return nil when the element isn't
+     * currently showing. Only the action bar and title can be WRITTEN; faking a scoreboard or boss
+     * bar client-side is out of scope (see TODO.md).
+     */
+    private static LuaTable buildHudManagerTable() {
+        LuaTable table = new LuaTable();
+        table.set("actionBar", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                String text = HudManager.actionBarText();
+                if (text == null) return LuaValue.NIL;
+                LuaTable t = new LuaTable();
+                t.set("text", text);
+                t.set("ticksRemaining", HudManager.actionBarTicksRemaining());
+                return t;
+            }
+        });
+        table.set("bossBars", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                LuaTable bars = new LuaTable();
+                List<HudManager.BossBar> list = HudManager.bossBars();
+                for (int i = 0; i < list.size(); i++) {
+                    HudManager.BossBar bar = list.get(i);
+                    LuaTable t = new LuaTable();
+                    t.set("name", bar.name());
+                    t.set("progress", bar.progress());
+                    t.set("color", bar.color());
+                    bars.set(i + 1, t);
+                }
+                return bars;
+            }
+        });
+        table.set("scoreboard", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                String title = HudManager.scoreboardTitle();
+                if (title == null) return LuaValue.NIL;
+                LuaTable entries = new LuaTable();
+                List<HudManager.ScoreEntry> list = HudManager.scoreboardEntries();
+                for (int i = 0; i < list.size(); i++) {
+                    LuaTable t = new LuaTable();
+                    t.set("name", list.get(i).name());
+                    t.set("score", list.get(i).score());
+                    entries.set(i + 1, t);
+                }
+                LuaTable result = new LuaTable();
+                result.set("title", title);
+                result.set("entries", entries);
+                return result;
+            }
+        });
+        table.set("title", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                String title = HudManager.titleText();
+                String subtitle = HudManager.subtitleText();
+                if (title == null && subtitle == null) return LuaValue.NIL;
+                LuaTable t = new LuaTable();
+                t.set("title", title == null ? "" : title);
+                t.set("subtitle", subtitle == null ? "" : subtitle);
+                return t;
+            }
+        });
+        table.set("setActionBarText", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue text) {
+                HudManager.setActionBarText(text.checkjstring());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setTitle", new TwoArgFunction() {
+            @Override
+            public LuaValue call(LuaValue title, LuaValue subtitle) {
+                HudManager.setTitle(title.checkjstring(), subtitle.optjstring(""));
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setActionBarVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setActionBarVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setBossBarVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setBossBarVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setScoreboardVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setScoreboardVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setTitleVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setTitleVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        return table;
     }
 
     // ------------------------------------------------------------------ peers

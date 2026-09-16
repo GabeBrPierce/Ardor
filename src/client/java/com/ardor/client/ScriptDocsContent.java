@@ -311,6 +311,34 @@ final class ScriptDocsContent {
                 Returns the name of whichever container menu is currently open (a chest, a crafting \
                 table, ...), or nil if only the player's own inventory is open."""),
 
+        new Section("keybinds", "Controlling Any Keybind", """
+                PLAYER.keybinds reaches every registered keybind -- this mod's own, vanilla's, or \
+                another installed mod's -- not just the ones Ardor already reacts to.
+
+                > PLAYER.keybinds.activate(name)
+                > PLAYER.keybinds.deactivate(name)
+
+                Holds a keybind down (or releases it) by its translation-key name, e.g. "key.jump" or \
+                "key.sprint". This is a real, continuous hold -- Ardor keeps re-asserting it every tick \
+                behind the scenes, so it survives normally even while other things are happening. \
+                activate/deactivate both return true/false for whether that name was actually found.
+
+                > PLAYER.keybinds.get()
+                > PLAYER.keybinds.query(regex)
+
+                get() lists every known keybind name; query(regex) filters that list. Use these to find \
+                the exact name you need instead of guessing -- keybind names vary by what's installed:
+
+                > for _, name in ipairs(PLAYER.keybinds.query("sprint")) do
+                >     echo(name)
+                > end
+
+                One thing this can't do: a single instant tap (like a normal keypress-and-release for a \
+                one-shot action) isn't the same as activate() immediately followed by deactivate() -- \
+                some keybinds only register a "click" through a separate mechanism this doesn't drive. \
+                Holding something down for real gameplay (movement, sprint, use) works reliably; a \
+                one-shot menu-toggle-style keybind might not always respond the same way a real tap does."""),
+
         new Section("managers", "Scripts, Macros & Wheels", """
                 > runScript(name)
                 > runMacro(name)
@@ -350,6 +378,87 @@ final class ScriptDocsContent {
                 name is optional on .show -- omitted, it opens the "default" wheel (the same one the J \
                 keybind opens). .create/.delete manage named wheels the same way the Wheels menu does; \
                 editing a wheel's wedges is UI-only for now (WheelEditScreen), not scriptable."""),
+
+        new Section("prompts", "Asking the Player Something", """
+                UserPromptManager opens a real screen and BLOCKS the script until the player answers or \
+                cancels -- same as Blocking Calls above. Cancelling (or just closing the screen) always \
+                resolves to nil, which is how you tell "the player answered nothing" apart from a real \
+                answer.
+
+                > local name = UserPromptManager.textInput("What should I call this base?")
+                > if name then
+                >     echo("naming it " .. name)
+                > else
+                >     echo("cancelled")
+                > end
+
+                textInput shows a free-text box; Enter or Submit returns whatever was typed.
+
+                > local picked = UserPromptManager.checkbox("Which resources to track?", {"wood", "stone", "iron"})
+
+                checkbox shows one box per option and lets the player pick any number of them (including \
+                none) -- Submit returns an array of the CHECKED labels (an empty array is a real answer, \
+                "picked nothing"; nil specifically means cancelled).
+
+                > local mode = UserPromptManager.multipleChoice("Playstyle?", {"Peaceful", "Aggressive", "Sneaky"})
+
+                multipleChoice is the same idea but only one option can be picked at a time -- Submit \
+                returns that ONE label as a plain string, or nil if cancelled.
+
+                Since the script is genuinely suspended while the prompt is open, nothing else that \
+                script was doing continues until the player responds -- if you need the game to keep \
+                doing something else while you wait for an answer, that's not what this is for."""),
+
+        new Section("hud", "Reading and Controlling the HUD", """
+                HudManager reads and controls four pieces of vanilla's on-screen display: the action \
+                bar (the text that flashes above the hotbar), boss health bars, the scoreboard sidebar, \
+                and the big title/subtitle text (advancement popups, boss-fight intros, that kind of \
+                thing).
+
+                Ardor itself never puts its own status messages on the action bar -- every "[Ardor] ..." \
+                message you see now goes straight to chat instead, and by default ANY action-bar message \
+                from ANY source (a server plugin included) is also mirrored into your chat log the moment \
+                it appears, so nothing shown there only flashes by once. Turn that mirroring off, or \
+                change whether each of the four elements still renders on screen at all, from Settings -> \
+                HUD; the four visibility toggles are also scriptable, see below.
+
+                > local bar = HudManager.actionBar()
+                > if bar then echo(bar.text .. " (" .. bar.ticksRemaining .. " ticks left)") end
+
+                > for _, boss in ipairs(HudManager.bossBars()) do
+                >     echo(boss.name .. ": " .. math.floor(boss.progress * 100) .. "%")
+                > end
+
+                > local sb = HudManager.scoreboard()
+                > if sb then
+                >     echo(sb.title)
+                >     for _, entry in ipairs(sb.entries) do echo(entry.name .. " = " .. entry.score) end
+                > end
+
+                > local t = HudManager.title()
+                > if t then echo(t.title .. " / " .. t.subtitle) end
+
+                Each read function returns nil when that element isn't currently showing anything -- \
+                always check before indexing into the result.
+
+                > HudManager.setActionBarText("custom message")
+                > HudManager.setTitle("Big Text", "smaller text underneath")
+
+                These trigger the SAME real vanilla display everything else uses -- if action-bar \
+                mirroring is on, a message you set this way gets mirrored to chat too, same as any other.
+
+                > HudManager.setActionBarVisible(false)
+                > HudManager.setBossBarVisible(false)
+                > HudManager.setScoreboardVisible(false)
+                > HudManager.setTitleVisible(false)
+
+                Turns vanilla's own on-screen rendering of that element off without losing anything -- \
+                the read functions above keep working exactly the same whether or not it's actually \
+                showing on screen. There's no way to WRITE fake scoreboard entries or boss bars from a \
+                script (unlike the action bar and title, those are normally built entirely server-side, \
+                and faking one client-side would just get overwritten the next time the real game state \
+                syncs) -- reading and hiding them both still work fully, only fabricating new content \
+                doesn't."""),
 
         new Section("events", "Events", """
                 A Script Event polls a predicate at an interval and, when it returns true, runs every \
@@ -461,6 +570,9 @@ final class ScriptDocsContent {
                 > getRegions(pos)
                 > goto(x, y, z)
                 > home(name)
+                > HudManager.actionBar / .bossBars / .scoreboard / .title
+                > HudManager.setActionBarText / .setTitle
+                > HudManager.setActionBarVisible / .setBossBarVisible / .setScoreboardVisible / .setTitleVisible
                 > isInGame()
                 > isKeyDown(keyName) / isKeyUp(keyName)
                 > kill(target, dist, autoSwapWeapon)
@@ -468,6 +580,7 @@ final class ScriptDocsContent {
                 > MacroManager.list / .delete / .play
                 > pause(ticks)  -- alias of wait
                 > PLAYER.health / .hunger / .saturation / .canFly / .freeInventorySlots / .gameMode / .executeScript
+                > PLAYER.keybinds.activate / .deactivate / .get / .query
                 > promptLLM(text, hierarchyLevel)
                 > putInHotbar(slot, hotbarSlot)
                 > queryEntity(regex, dist, pos)
@@ -482,6 +595,7 @@ final class ScriptDocsContent {
                 > ScriptManager.list / .create / .delete / .run
                 > startCooldown(ticks, showBar, label)
                 > swapItems(slotA, slotB)
+                > UserPromptManager.textInput / .checkbox / .multipleChoice
                 > wait(ticks)  -- alias of pause
                 > WheelManager.show / .hide / .list / .search / .create / .delete""")
     );

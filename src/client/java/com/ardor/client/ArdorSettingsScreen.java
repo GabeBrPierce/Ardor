@@ -210,6 +210,32 @@ public final class ArdorSettingsScreen {
         // The `peers` list (name/host/port entries) has no editor here -- edit config/ardor.json by
         // hand for now, see TODO.md.
 
+        // See client/HudManager.java. The four Show toggles wrap vanilla's own HUD elements via
+        // HudElementRegistry.replaceElement, re-read every frame, so they take effect immediately.
+        ConfigCategory hud = builder.getOrCreateCategory(Component.literal("HUD"));
+        padTop(eb, hud);
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Mirror Action Bar To Chat"), cfg.hudMirrorActionBarToChat)
+                .setDefaultValue(true)
+                .setTooltip(Component.literal("Copies every action-bar message into the chat log so it scrolls back instead of vanishing. Purely local -- nothing is sent to the server."))
+                .setSaveConsumer(v -> cfg.hudMirrorActionBarToChat = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Action Bar"), cfg.hudActionBarVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudActionBarVisible = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Boss Bars"), cfg.hudBossBarVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudBossBarVisible = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Scoreboard"), cfg.hudScoreboardVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudScoreboardVisible = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Title/Subtitle"), cfg.hudTitleVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudTitleVisible = v)
+                .build());
+
         return builder.build();
     }
 

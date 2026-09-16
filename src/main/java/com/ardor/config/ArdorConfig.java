@@ -146,6 +146,16 @@ public final class ArdorConfig {
     // Edited by hand in ardor.json for now -- no settings-screen editor this pass, see TODO.md.
     public List<PeerEntry> peers = List.of();
 
+    // HUD elements (see client/HudManager.java). All default true = "leave vanilla exactly where it
+    // is": every element stays visible, and hudMirrorActionBarToChat copies action-bar messages into
+    // the chat log (purely additive -- the action bar itself is untouched) so a status that flashed
+    // by is still readable afterward.
+    public boolean hudMirrorActionBarToChat = true;
+    public boolean hudActionBarVisible = true;
+    public boolean hudBossBarVisible = true;
+    public boolean hudScoreboardVisible = true;
+    public boolean hudTitleVisible = true;
+
     public static final class PeerEntry {
         public String name;
         public String host;
