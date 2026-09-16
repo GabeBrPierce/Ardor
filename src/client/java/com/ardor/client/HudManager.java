@@ -156,6 +156,9 @@ public final class HudManager {
      */
     public static void onOverlayMessageSet(Component text) {
         if (!ArdorConfig.get().hudMirrorActionBarToChat) return;
-        Minecraft.getInstance().gui.getChat().addClientSystemMessage(text);
+        // Everything Ardor puts in chat carries the same [Ardor] prefix, this mirrored line
+        // included -- append() keeps the original message's own formatting/color intact rather than
+        // flattening it to plain text first.
+        Minecraft.getInstance().gui.getChat().addClientSystemMessage(Component.literal("[Ardor] ").append(text));
     }
 }

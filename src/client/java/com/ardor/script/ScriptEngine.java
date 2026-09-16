@@ -124,12 +124,17 @@ public final class ScriptEngine {
      * (ScriptEventBindings/ScriptEventEditScreen), not the coroutine-based run() everything else
      * uses. A predicate script that calls a blocking binding (pause, home, ...) gets LuaJ's own
      * "cannot yield" LuaError, caught here same as an inline EventManager predicate function.
+     * errorKey dedups a persistently-failing predicate to one chat line instead of one per poll
+     * (see StatusIndicator.showOnce) -- callers pass something stable per predicate, e.g. the event name.
      */
-    public static boolean runPredicate(String source) {
+    public static boolean runPredicate(String source, String errorKey) {
         try {
-            return globals().load(source, "event-predicate").call().toboolean();
+            boolean result = globals().load(source, "event-predicate").call().toboolean();
+            StatusIndicator.clearOnce(errorKey);
+            return result;
         } catch (LuaError e) {
             System.err.println("[ardor] event predicate script failed: " + e.getMessage());
+            StatusIndicator.showOnce(errorKey, "Event predicate script failed: " + e.getMessage());
             return false;
         }
     }
@@ -634,7 +639,7 @@ public final class ScriptEngine {
                 boolean intervalOmitted = args.arg(2).isfunction();
                 int interval = intervalOmitted ? DEFAULT_EVENT_INTERVAL_TICKS : args.arg(2).checkint();
                 LuaValue predicate = intervalOmitted ? args.arg(2) : args.arg(3);
-                ScriptEventRegistry.setEvent(name, interval, () -> callPredicate(predicate));
+                ScriptEventRegistry.setEvent(name, interval, () -> callPredicate(predicate, name));
                 return LuaValue.NONE;
             }
         });
@@ -654,7 +659,7 @@ public final class ScriptEngine {
             @Override
             public Varargs invoke(Varargs args) {
                 LuaValue fn = args.arg(args.narg()); // last arg, so evt:subscribe(f) and evt.subscribe(f) both work
-                return LuaValue.valueOf(ScriptEventRegistry.subscribe(name, () -> callCallback(fn), fn));
+                return LuaValue.valueOf(ScriptEventRegistry.subscribe(name, () -> callCallback(fn, name), fn));
             }
         });
         handle.set("unsubscribe", new VarArgFunction() {
@@ -672,21 +677,25 @@ public final class ScriptEngine {
      * like pause() called from one throws "cannot yield" rather than suspending, caught here so a
      * misused callback can't take down the tick loop or the other events sharing it.
      */
-    private static boolean callPredicate(LuaValue predicate) {
+    private static boolean callPredicate(LuaValue predicate, String eventName) {
         try {
-            return predicate.call().toboolean();
+            boolean result = predicate.call().toboolean();
+            StatusIndicator.clearOnce("event-predicate:" + eventName);
+            return result;
         } catch (LuaError e) {
             System.err.println("[ardor] script event predicate failed: " + e.getMessage());
+            StatusIndicator.showOnce("event-predicate:" + eventName, "Script event '" + eventName + "' predicate failed: " + e.getMessage());
             return false;
         }
     }
 
-    private static void callCallback(LuaValue fn) {
+    private static void callCallback(LuaValue fn, String eventName) {
         Runnable call = () -> {
             try {
                 fn.call();
             } catch (LuaError e) {
                 System.err.println("[ardor] script event callback failed: " + e.getMessage());
+                StatusIndicator.showOnce("event-callback:" + eventName, "Script event '" + eventName + "' subscriber failed: " + e.getMessage());
             }
         };
         Minecraft mc = Minecraft.getInstance();
@@ -1188,6 +1197,7 @@ public final class ScriptEngine {
                 .thenAccept(response -> ResponseHandler.handle(response, config.llmMode))
                 .exceptionally(err -> {
                     System.err.println("[ardor] script commandLLM failed: " + err.getMessage());
+                    Minecraft.getInstance().execute(() -> StatusIndicator.show("commandLLM failed: " + err.getMessage()));
                     return null;
                 });
     }
@@ -1330,6 +1340,7 @@ public final class ScriptEngine {
                 .thenAccept(tasks -> Minecraft.getInstance().execute(() -> TaskRunner.shared().interrupt(tasks, NO_OP_LISTENER)))
                 .exceptionally(err -> {
                     System.err.println("[ardor] script ask() failed: " + err.getMessage());
+                    Minecraft.getInstance().execute(() -> StatusIndicator.show("ask() failed: " + err.getMessage()));
                     return null;
                 });
     }
