@@ -40,19 +40,21 @@ public final class ArdorConfigScreen extends Screen {
         clearWidgets();
 
         List<Row> rows = List.of(
-                new Row("Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this))),
-                new Row("Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen())),
-                new Row("Regions", b -> Minecraft.getInstance().setScreen(new RegionListScreen())),
-                new Row("Events", b -> Minecraft.getInstance().setScreen(new EventConfigScreen())),
-                new Row("Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen())),
-                new Row("Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen())),
+                // Grouped by what the rows actually relate to, not the order they were added in:
+                // scripting (write/run/bind/trigger/learn) together, then regions, then everything else.
                 new Row("Scripts", b -> Minecraft.getInstance().setScreen(new ScriptListScreen())),
+                new Row("Script Events", b -> Minecraft.getInstance().setScreen(new ScriptEventListScreen())),
                 new Row("Script Keybinds", b -> Minecraft.getInstance().setScreen(new ScriptKeybindScreen())),
+                new Row("Wheels", b -> Minecraft.getInstance().setScreen(new WheelListScreen())),
+                new Row("Lua Scripting Help", b -> Minecraft.getInstance().setScreen(new ScriptDocsScreen(this))),
                 new Row("Macros", b -> Minecraft.getInstance().setScreen(new MacroListScreen())),
                 new Row("Macro Keybinds", b -> Minecraft.getInstance().setScreen(new MacroKeybindScreen())),
-                new Row("Wheels", b -> Minecraft.getInstance().setScreen(new WheelListScreen())),
-                new Row("Script Events", b -> Minecraft.getInstance().setScreen(new ScriptEventListScreen())),
-                new Row("Lua Scripting Help", b -> Minecraft.getInstance().setScreen(new ScriptDocsScreen(this))),
+                new Row("Regions", b -> Minecraft.getInstance().setScreen(new RegionListScreen())),
+                new Row("Events", b -> Minecraft.getInstance().setScreen(new EventConfigScreen())),
+                new Row("Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen())),
+                new Row("Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen())),
+                new Row("Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen())),
+                new Row("Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this))),
                 new Row("Done", b -> onClose())
         );
 

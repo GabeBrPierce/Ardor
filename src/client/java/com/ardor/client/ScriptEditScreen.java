@@ -112,6 +112,8 @@ public final class ScriptEditScreen extends Screen {
         // programmatic edit, not new input, and shouldn't cancel the cycle it's mid-way through.
         textField.setValueListener(v -> { source = v; recomputeDerived(v); });
 
+        addRenderableWidget(Button.builder(Component.literal("Run"), b -> onRun())
+                .bounds(10, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Help"), b -> onHelp())
                 .bounds(width - 190, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Save"), b -> onSave())
@@ -124,6 +126,14 @@ public final class ScriptEditScreen extends Screen {
     private void onHelp() {
         ScriptStore.save(scriptName, source);
         Minecraft.getInstance().setScreen(new ScriptDocsScreen(this));
+    }
+
+    /** Saves first (so ScriptStore/other call sites see exactly what just ran) then runs the live editor text directly, same error-reporting shape ScriptKeybinds/ScriptWheelKey already use. Screen stays open -- running is meant for iterating on a script, not a one-way trip. */
+    private void onRun() {
+        ScriptStore.save(scriptName, source);
+        statusLine = "Running " + scriptName + ".lua";
+        ScriptEngine.run(source, scriptName, error ->
+                Minecraft.getInstance().execute(() -> StatusIndicator.show("Script '" + scriptName + "' failed: " + error)));
     }
 
     private int visibleLines() {
