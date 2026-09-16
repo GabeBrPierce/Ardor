@@ -55,11 +55,11 @@ public final class ScriptListScreen extends Screen {
         int y = rowTop;
         for (String name : scripts) {
             addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new ScriptEditScreen(name)))
-                    .bounds(390, y, 55, ROW_H - 2).build());
+                    .bounds(width - 130, y, 55, ROW_H - 2).build());
             addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
                 ScriptStore.delete(name);
                 rebuildAllWidgets();
-            }).bounds(450, y, 60, ROW_H - 2).build());
+            }).bounds(width - 70, y, 60, ROW_H - 2).build());
             y += ROW_H;
         }
     }

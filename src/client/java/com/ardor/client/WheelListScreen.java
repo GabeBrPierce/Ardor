@@ -57,13 +57,13 @@ public final class WheelListScreen extends Screen {
             addRenderableWidget(Button.builder(Component.literal("Show"), b -> {
                 Minecraft.getInstance().setScreen(null);
                 ScriptWheelKey.open(name);
-            }).bounds(390, y, 55, ROW_H - 2).build());
+            }).bounds(width - 185, y, 55, ROW_H - 2).build());
             addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new WheelEditScreen(name)))
-                    .bounds(450, y, 50, ROW_H - 2).build());
+                    .bounds(width - 125, y, 50, ROW_H - 2).build());
             addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
                 ScriptWheelStore.delete(name);
                 rebuildAllWidgets();
-            }).bounds(505, y, 60, ROW_H - 2).build());
+            }).bounds(width - 70, y, 60, ROW_H - 2).build());
             y += ROW_H;
         }
     }

@@ -44,11 +44,11 @@ public final class ResumeWorkScreen extends Screen {
             addRenderableWidget(Button.builder(Component.literal("Resume"), b -> {
                 e.resume().run();
                 onClose();
-            }).bounds(390, y, 70, 18).build());
+            }).bounds(width - 150, y, 70, 18).build());
             addRenderableWidget(Button.builder(Component.literal("Discard"), b -> {
                 e.discard().run();
                 Minecraft.getInstance().setScreen(new ResumeWorkScreen(parent));
-            }).bounds(465, y, 70, 18).build());
+            }).bounds(width - 75, y, 70, 18).build());
             y += 24;
         }
     }

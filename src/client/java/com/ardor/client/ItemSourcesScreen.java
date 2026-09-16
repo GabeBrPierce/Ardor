@@ -85,14 +85,14 @@ public final class ItemSourcesScreen extends Screen {
                     .build());
 
             addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new SourceEditScreen(source.id)))
-                    .bounds(390, y, 55, ROW_H - 2).build());
+                    .bounds(width - 130, y, 55, ROW_H - 2).build());
 
             Button remove = addRenderableWidget(Button.builder(Component.literal("Remove"), b -> {
                 try {
                     SourceManager.get().remove(source.id);
                 } catch (RuntimeException ignored) { /* the built-in ender chest source refuses removal */ }
                 rebuildAllWidgets();
-            }).bounds(450, y, 60, ROW_H - 2).build());
+            }).bounds(width - 70, y, 60, ROW_H - 2).build());
             remove.active = !isEnderChest;
 
             y += ROW_H;
