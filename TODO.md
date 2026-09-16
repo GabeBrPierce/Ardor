@@ -3,6 +3,57 @@
 Convention: this file lists only currently open work -- stubbed features, deferred asks, and known
 unfixed bugs. Entries are removed once resolved; resolved history lives in git/session logs, not here.
 
+## Resume after interruption: BreakAreaController/KillAllController/TaskRunner, NOT TaskOrchestrator (2026-09-16)
+
+"If we get interrupted while doing something (like an error or something while removing block in
+area) I would like a way to resume from where we left off," scope confirmed as: Break Area + Kill
+All + task running, and persisted across a full client restart, not just an in-session error.
+
+- **BreakAreaController**: persists the remaining block queue (plus dump/return position) to
+  `ardor-break-area-resume.json` after every block broken. Also fixed a real hang bug found while
+  building this: an exception mid-break used to either get silently swallowed by
+  `PathfindingController`'s own `baritoneNavTick` catch (which clears ITS OWN goal but never
+  touched `BreakAreaController.active`, leaving it "active" forever with nothing driving it) or, if
+  thrown from `BlockBreaker`'s completion callback, escape into `BlockBreaker`'s own UNGUARDED tick
+  loop and crash the client outright (confirmed by reading it -- no try/catch there at all). Now
+  every external re-entry point is wrapped in a local `guarded()` that stops the run cleanly,
+  persists, and tells the user in chat instead.
+- **KillAllController**: nearly free -- it already re-scans every tick instead of tracking a fixed
+  list, so "resume" is just "start scanning again with the same filter/area." Persists to
+  `ardor-killall-resume.json` for the two nameable entry points (an exact EntityType, or "hostiles
+  in this AABB"). The `startMatching(Predicate, area)` entry point (ScriptEngine's `killAll(regex,
+  ...)` binding) is NOT resumable -- an arbitrary Lua predicate can't be serialized to survive a
+  restart, and re-running the script is how that one gets "resumed."
+- **TaskRunner**: persists `tasks`/`taskIndex`/`commandIndex`/`source` to
+  `ardor-taskrunner-resume.json` on every advance, so a resumed plan picks up the EXACT command it
+  was on, not just the task. `TaskRunner.resume(listener)` takes an optional listener; a resume
+  triggered from ResumeWorkScreen or the world-join notifier has no live Task Planner screen to
+  supply one, so it falls back to a headless `StatusIndicator`-only listener (`HEADLESS_LISTENER`).
+  Reopening Task Planner afterward still correctly shows Cancel/Pause active (it polls
+  `isActive()`/`isPaused()` directly) but its per-command color-coded history won't reflect a
+  resumed-headless run's progress -- a real gap, not hidden, would need Task Planner to poll
+  taskIndex/commandIndex directly instead of relying solely on listener callbacks to fix properly.
+- **NOT covered: `interrupt()`'s urgent-task stack.** `TaskRunner.interrupt()` (event-hook-triggered
+  urgent tasks) already has its OWN in-memory-only save/resume (`savedTasks`/`savedListener`/
+  `savedSource`) for "finish the urgent thing, then go back to what you were doing." If the client
+  crashes WHILE the urgent task is running, the original interrupted plan (sitting only in those
+  saved* fields) is lost -- never persisted, since `run()` for the urgent task overwrites the
+  persisted file with the urgent task's own state. A real gap for a narrow compound case (event
+  interrupt + crash during the interrupt), not attempted here.
+- **NOT covered at all: `TaskOrchestrator`.** Its "task running" is an LLM re-planning loop (a goal
+  string, a progress log, and a live `Micromanager` mid-conversation with the planning model) --
+  resuming that across a restart means replaying an LLM conversation, not restoring a data
+  structure. Deliberately left out rather than faked; `TaskRunner.interrupt()`'s existing pause/
+  resume already covers the in-session "event interrupted my current step" case for it.
+- **Discoverability**: `ArdorConfigScreen` gained a "Resume Interrupted Work" row opening
+  `ResumeWorkScreen` (lists whatever's resumable across all three systems with Resume/Discard
+  buttons); `InterruptedWorkNotifier` also posts a chat summary on every world join if anything's
+  resumable for that world/server (`RegionManager.currentProfileKey()`-scoped, same as regions).
+- **NOT built**: no Lua-level `resume()` bindings (BreakArea/KillAll/TaskRunner aren't exposed as
+  scriptable tables with sub-functions today, just verbs) -- scripts can already just re-issue the
+  same action to get a similar effect. Worth adding if a script ever needs to check/resume without
+  going through the UI.
+
 ## Three reported UI bugs fixed (2026-09-16)
 
 - **List-screen button overlap**: root cause was `FlowLayout.next()`'s `x > startX` guard, which

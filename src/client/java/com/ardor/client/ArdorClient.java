@@ -85,6 +85,7 @@ public class ArdorClient implements ClientModInitializer {
         QuestTrackerOverlay.register();
         HudManager.register();
         CooldownHud.register();
+        InterruptedWorkNotifier.register();
         PlacementRecorder.register();
 
         // Xaero's World Map integration (com.ardor.xaero.*) needs no explicit call here --

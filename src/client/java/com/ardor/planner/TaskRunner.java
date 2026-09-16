@@ -1,15 +1,23 @@
 package com.ardor.planner;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.ardor.client.ArdorMasterToggle;
+import com.ardor.client.StatusIndicator;
 import com.ardor.game.ActionDispatcher;
 import com.ardor.game.GameActionController;
 import com.ardor.game.PathfindingController;
 import com.ardor.history.ActionHistory;
 import com.ardor.ir.AsciiActionCodec;
+import com.ardor.region.RegionManager;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -144,12 +152,119 @@ public final class TaskRunner {
         this.paused = false;
         this.waitingForIdle = false;
         ensureRegistered();
+        persist();
         listener.onTaskStarted(0, this.tasks.get(0));
     }
 
+    /**
+     * "Stop, but stays resumable" -- unlike pause() this doesn't dispatch a real `stop` action
+     * (whatever's currently in flight keeps running/finishes on its own), it just stops TaskRunner
+     * from advancing. The resume-from-disk file is deliberately left in place here (same as
+     * BreakAreaController.cancel()/KillAllController.stop()) -- every caller of cancel() (PanicStop,
+     * TaskOrchestrator.stop(), a fresh run() overwriting a still-active one) is still a legitimate
+     * "resume this later if you want to" situation, not a "this plan is garbage, forget it" one.
+     */
     public void cancel() {
         active = false;
         paused = false;
+    }
+
+    // ------------------------------------------------------------------ resume / persistence
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    private record ResumeState(String profileKey, List<PlannedTask> tasks, int taskIndex, int commandIndex, String source) {}
+
+    private static Path resumePath() {
+        return FabricLoader.getInstance().getConfigDir().resolve("ardor-taskrunner-resume.json");
+    }
+
+    /** Called after every taskIndex/commandIndex move so a crash mid-command resumes at exactly that command, not the one before it. No-op while nothing's running (cancel()/a finished plan leave whatever was last written on disk, see cancel()'s own doc). */
+    private void persist() {
+        if (!active || tasks == null) return;
+        ResumeState state = new ResumeState(RegionManager.currentProfileKey(), tasks, taskIndex, commandIndex, source);
+        try {
+            Files.writeString(resumePath(), GSON.toJson(state));
+        } catch (IOException e) {
+            System.err.println("[ardor] task runner: failed to persist resume state: " + e);
+        }
+    }
+
+    private static void clearPersisted() {
+        try {
+            Files.deleteIfExists(resumePath());
+        } catch (IOException e) {
+            System.err.println("[ardor] task runner: failed to clear resume state: " + e);
+        }
+    }
+
+    private static ResumeState loadPersisted() {
+        Path p = resumePath();
+        if (!Files.exists(p)) return null;
+        try {
+            return GSON.fromJson(Files.readString(p), ResumeState.class);
+        } catch (IOException e) {
+            System.err.println("[ardor] task runner: failed to load resume state: " + e);
+            return null;
+        }
+    }
+
+    /** For the "found interrupted work" world-join check and the Resume Interrupted Work screen. */
+    public static boolean hasResumable() {
+        if (SHARED.active) return false;
+        ResumeState state = loadPersisted();
+        return state != null && state.profileKey().equals(RegionManager.currentProfileKey()) && !state.tasks().isEmpty();
+    }
+
+    public static String resumableSummary() {
+        ResumeState state = loadPersisted();
+        if (state == null) return null;
+        int index = Math.min(state.taskIndex(), state.tasks().size() - 1);
+        return "Task Plan: step " + (index + 1) + "/" + state.tasks().size()
+                + " (\"" + state.tasks().get(index).description() + "\")";
+    }
+
+    public static void discardResumable() {
+        clearPersisted();
+    }
+
+    /**
+     * A minimal fallback for resume(null) -- there's no live Task Planner screen driving a resume
+     * triggered from the Resume Interrupted Work screen or a fresh-launch world-join prompt, so
+     * this just narrates progress to chat instead of a UI's per-task status list. Reopening Task
+     * Planner afterward still reflects isActive()/isPaused() correctly (it polls those directly),
+     * just not this specific run's per-command color-coded history -- a real gap, not hidden: see
+     * TODO.md.
+     */
+    private static final Listener HEADLESS_LISTENER = new Listener() {
+        @Override public void onTaskStarted(int taskIndex, PlannedTask task) {
+            StatusIndicator.show("Resumed task " + (taskIndex + 1) + ": " + task.description());
+        }
+        @Override public void onCommandStarted(int taskIndex, int commandIndex, String command) {}
+        @Override public void onCommandFailed(int taskIndex, int commandIndex, String command, String error) {
+            StatusIndicator.show("Command failed: " + command + " -- " + error);
+        }
+        @Override public void onTaskFinished(int taskIndex) {}
+        @Override public void onPlanFinished() {
+            StatusIndicator.show("Resumed plan finished.");
+        }
+    };
+
+    /** Resumes a stopped/errored/(after a full restart) crashed plan from exactly the command it was on. A null listener falls back to HEADLESS_LISTENER. */
+    public static synchronized void resume(Listener listener) {
+        if (SHARED.active || !ArdorMasterToggle.isEnabled()) return;
+        ResumeState state = loadPersisted();
+        if (state == null || !state.profileKey().equals(RegionManager.currentProfileKey()) || state.tasks().isEmpty()) return;
+        SHARED.tasks = new ArrayList<>(state.tasks());
+        SHARED.taskIndex = Math.min(state.taskIndex(), SHARED.tasks.size() - 1);
+        SHARED.commandIndex = state.commandIndex();
+        SHARED.source = state.source();
+        SHARED.listener = listener != null ? listener : HEADLESS_LISTENER;
+        SHARED.active = true;
+        SHARED.paused = false;
+        SHARED.waitingForIdle = false;
+        SHARED.ensureRegistered();
+        SHARED.listener.onTaskStarted(SHARED.taskIndex, SHARED.tasks.get(SHARED.taskIndex));
     }
 
     public boolean isActive() {
@@ -252,6 +367,7 @@ public final class TaskRunner {
             tickInner();
         } catch (RuntimeException e) {
             System.err.println("[ardor] TaskRunner tick failed, stopping plan: " + e);
+            persist(); // capture taskIndex/commandIndex as of the crash, while active is still true
             active = false;
         }
     }
@@ -297,6 +413,7 @@ public final class TaskRunner {
 
     private void dispatchCurrent() {
         String command = currentCommand();
+        persist();
         listener.onCommandStarted(taskIndex, commandIndex, command);
         try {
             JsonObject action = AsciiActionCodec.decode(command);
@@ -324,9 +441,11 @@ public final class TaskRunner {
         commandIndex = 0;
         if (taskIndex >= tasks.size()) {
             active = false;
+            clearPersisted(); // the whole plan finished on its own -- nothing left to resume
             listener.onPlanFinished();
             return;
         }
+        persist();
         listener.onTaskStarted(taskIndex, tasks.get(taskIndex));
     }
 

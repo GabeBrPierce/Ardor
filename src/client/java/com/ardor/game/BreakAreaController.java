@@ -1,7 +1,11 @@
 package com.ardor.game;
 
 import com.ardor.client.StatusIndicator;
+import com.ardor.region.RegionManager;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Inventory;
@@ -11,6 +15,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -52,8 +59,112 @@ public final class BreakAreaController {
     private static int brokenCount;
     private static BlockPos dumpTarget;
     private static BlockPos returnPos;
+    private static BlockPos currentPos; // the one block in flight -- poll()'d off queue but not yet broken, so a crash mid-break doesn't lose it from the persisted resume state
 
     private BreakAreaController() {}
+
+    // ------------------------------------------------------------------ resume / persistence
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    private record Pos(int x, int y, int z) {
+        static Pos of(BlockPos p) { return new Pos(p.getX(), p.getY(), p.getZ()); }
+        BlockPos toBlockPos() { return new BlockPos(x, y, z); }
+    }
+
+    private record ResumeState(String profileKey, int totalCount, int brokenCount, List<Pos> remaining, Pos dumpTarget, Pos returnPos) {}
+
+    private static Path resumePath() {
+        return FabricLoader.getInstance().getConfigDir().resolve("ardor-break-area-resume.json");
+    }
+
+    private static void persist() {
+        List<Pos> remaining = new ArrayList<>();
+        if (currentPos != null) remaining.add(Pos.of(currentPos));
+        for (BlockPos p : queue) remaining.add(Pos.of(p));
+        ResumeState state = new ResumeState(RegionManager.currentProfileKey(), totalCount, brokenCount, remaining,
+                dumpTarget != null ? Pos.of(dumpTarget) : null, returnPos != null ? Pos.of(returnPos) : null);
+        try {
+            Files.writeString(resumePath(), GSON.toJson(state));
+        } catch (IOException e) {
+            System.err.println("[ardor] break area: failed to persist resume state: " + e);
+        }
+    }
+
+    private static void clearPersisted() {
+        try {
+            Files.deleteIfExists(resumePath());
+        } catch (IOException e) {
+            System.err.println("[ardor] break area: failed to clear resume state: " + e);
+        }
+    }
+
+    private static ResumeState loadPersisted() {
+        Path p = resumePath();
+        if (!Files.exists(p)) return null;
+        try {
+            return GSON.fromJson(Files.readString(p), ResumeState.class);
+        } catch (IOException e) {
+            System.err.println("[ardor] break area: failed to load resume state: " + e);
+            return null;
+        }
+    }
+
+    /** For the "found interrupted work" world-join check and the Resume Interrupted Work screen. */
+    public static boolean hasResumable() {
+        if (active) return false;
+        ResumeState state = loadPersisted();
+        return state != null && state.profileKey().equals(RegionManager.currentProfileKey()) && !state.remaining().isEmpty();
+    }
+
+    public static String resumableSummary() {
+        ResumeState state = loadPersisted();
+        if (state == null) return null;
+        return "Break Blocks Within: " + state.brokenCount() + "/" + state.totalCount() + " broken, "
+                + state.remaining().size() + " left";
+    }
+
+    public static void discardResumable() {
+        clearPersisted();
+    }
+
+    /** Picks the queue/dump target/return position back up from the last persisted state -- see start()'s counterpart. */
+    public static void resume() {
+        if (active) return;
+        ResumeState state = loadPersisted();
+        if (state == null || !state.profileKey().equals(RegionManager.currentProfileKey()) || state.remaining().isEmpty()) return;
+        active = true;
+        totalCount = state.totalCount();
+        brokenCount = state.brokenCount();
+        queue = new ArrayDeque<>(state.remaining().stream().map(Pos::toBlockPos).toList());
+        currentPos = null;
+        breaker = new BlockBreaker();
+        dumpTarget = state.dumpTarget() != null ? state.dumpTarget().toBlockPos() : null;
+        returnPos = state.returnPos() != null ? state.returnPos().toBlockPos() : null;
+        StatusIndicator.show("Resuming break area: " + brokenCount + "/" + totalCount + " broken, " + queue.size() + " left.");
+        next();
+    }
+
+    /**
+     * Wraps a re-entry point (called from BlockBreaker's/PathExecutor's/Baritone's own tick loops,
+     * none of which know about this class's state) so an exception stops this run cleanly and
+     * resumably instead of either hanging forever (baritoneNavTick's own outer catch clears ITS
+     * goal but never touches BreakAreaController.active, leaving this class thinking it's still
+     * active with nothing left driving it) or escaping into a caller with no catch at all and
+     * crashing the client (BlockBreaker's own tick loop -- confirmed via reading it -- has none).
+     */
+    private static void guarded(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+            System.err.println("[ardor] break area: stopped by error: " + e);
+            active = false;
+            if (breaker != null) breaker.cancel();
+            persist();
+            StatusIndicator.show("Break area stopped by an error (" + brokenCount + "/" + totalCount
+                    + " broken) -- " + e.getMessage() + ". Resume it from the Ardor menu to continue.");
+        }
+    }
 
     public static boolean isActive() {
         return active;
@@ -169,11 +280,13 @@ public final class BreakAreaController {
         totalCount = blocks.size();
         brokenCount = 0;
         queue = new ArrayDeque<>(blocks);
+        currentPos = null;
         breaker = new BlockBreaker();
         dumpTarget = dumpTargetPos;
         var player = Minecraft.getInstance().player;
         returnPos = player != null ? player.blockPosition() : null; // "pathfind back to the place where the request to dig was" once done -- see finishRun's own doc
         StatusIndicator.show("Breaking " + totalCount + " block(s)...");
+        persist();
         next();
     }
 
@@ -254,10 +367,16 @@ public final class BreakAreaController {
     }
 
     private static void next() {
+        guarded(BreakAreaController::nextInner);
+    }
+
+    private static void nextInner() {
         if (!active) return;
         BlockPos pos = queue.poll();
+        currentPos = pos;
         if (pos == null) {
             active = false;
+            clearPersisted(); // the whole job finished on its own -- nothing left to resume
             StatusIndicator.show("Broke " + brokenCount + "/" + totalCount + " block(s).");
             finishRun();
             return;
@@ -269,7 +388,7 @@ public final class BreakAreaController {
             return;
         }
         Block type = level.getBlockState(pos).getBlock();
-        PathfindingController.ensureToolFor(type, () -> walkAndBreak(pos));
+        PathfindingController.ensureToolFor(type, () -> guarded(() -> walkAndBreak(pos)));
     }
 
     /**
@@ -294,10 +413,12 @@ public final class BreakAreaController {
 
     private static void walkAndBreak(BlockPos pos) {
         PathfindingController.walkThenRun(pos, "couldn't reach " + pos + " while breaking area",
-                () -> breaker.breakBlock(pos, () -> {
+                () -> breaker.breakBlock(pos, () -> guarded(() -> {
                     brokenCount++;
+                    currentPos = null;
+                    persist();
                     maybeDumpThenContinue();
-                }),
+                })),
                 failReason -> {
                     System.err.println("[ardor] break area: skipping " + pos + ": " + failReason);
                     next();

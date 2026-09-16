@@ -54,6 +54,7 @@ public final class ArdorConfigScreen extends Screen {
                 new Row("Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen())),
                 new Row("Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen())),
                 new Row("Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen())),
+                new Row("Resume Interrupted Work", b -> Minecraft.getInstance().setScreen(new ResumeWorkScreen(this))),
                 new Row("Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this))),
                 new Row("Done", b -> onClose())
         );
