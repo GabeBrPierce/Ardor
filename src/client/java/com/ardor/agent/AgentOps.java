@@ -326,7 +326,7 @@ public final class AgentOps {
     private static CompletableFuture<JsonObject> screenshot() {
         Minecraft client = Minecraft.getInstance();
         CompletableFuture<JsonObject> future = new CompletableFuture<>();
-        Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(), component -> {
+        Screenshot.grab(client.gameDirectory, client.gameRenderer.mainRenderTarget(), component -> {
             try {
                 Path screenshotsDir = client.gameDirectory.toPath().resolve("screenshots");
                 Path newest = Files.list(screenshotsDir)

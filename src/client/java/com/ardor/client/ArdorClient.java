@@ -3,6 +3,7 @@ package com.ardor.client;
 import com.ardor.agent.AgentControlChannel;
 import com.ardor.bridge.BaritoneNav;
 import com.ardor.bridge.BridgeServer;
+import com.ardor.bridge.PeerDiscovery;
 import com.ardor.bridge.PeerServer;
 import com.ardor.container.AutoSourceRecorder;
 import com.ardor.event.EventHookDispatcher;
@@ -24,6 +25,7 @@ import com.ardor.region.RegionManager;
 import com.ardor.struct.PlacementRecorder;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +53,7 @@ public class ArdorClient implements ClientModInitializer {
         MacroCommands.register();
         BridgeServer.register();
         PeerServer.register();
+        PeerDiscovery.register();
         RegionRenderer.register();
         SocialGreetingController.register();
         AutoEatController.register();
@@ -71,17 +74,25 @@ public class ArdorClient implements ClientModInitializer {
         HomeCommands.register();
         ScriptWheelCommands.register();
         ScriptWheelKey.register();
-        ScriptKeybindCommands.register();
-        ScriptKeybinds.register();
-        MacroKeybinds.register();
+        DynamicKeybinds.register();
         MacroStopRecordingKey.register();
+        KeybindControl.register();
+        ActivityTracker.register();
         TaskPlannerKey.register();
         PanicStopKey.register();
         PanicStopCommand.register();
         PauseToggleKey.register();
         ArdorMasterToggleKey.register();
         QuestTrackerOverlay.register();
+        HudManager.register();
+        CooldownHud.register();
+        InterruptedWorkNotifier.register();
         PlacementRecorder.register();
+        FreecamController.register();
+        FreecamKey.register();
+        FreecamOrchestratorOverlay.register();
+        PeerStatusPoller.register();
+        CompanionInstancePoller.register();
 
         // Xaero's World Map integration (com.ardor.xaero.*) needs no explicit call here --
         // RegionChunkHighlighter gets registered automatically by RegisterHighlighterMixin, which
@@ -99,9 +110,24 @@ public class ArdorClient implements ClientModInitializer {
         // repeatedly this session. Forced off in memory only, every launch, never written to
         // options.txt: this is a "the bot is running" behavior, not a permanent user preference, so
         // removing the mod restores stock behavior with zero leftover trace.
+        // Baritone (baritone-api-fabric-*.jar) is a real, hard requirement for pathfinding (see
+        // BaritoneNav's own class doc) but is deployed as a separate mod jar, not bundled with this
+        // one -- an instance that's missing it must not NoClassDefFoundError the whole game just
+        // because BaritoneNav.configure() eagerly touches BaritoneAPI.getSettings(). Movement/mine/
+        // follow commands that actually need Baritone will still fail loudly when invoked; this only
+        // stops "Baritone isn't installed yet" from being unrecoverable at launch.
+        // Checks both mod ids: official upstream ships as "baritone", but the only MC 26.3 build
+        // available right now (dysnasia/baritone-26.3, an unofficial fork) ships as "baritone-fork" --
+        // same baritone.api.* Java package either way, so either satisfies BaritoneNav's imports.
+        boolean baritoneLoaded = FabricLoader.getInstance().isModLoaded("baritone")
+                || FabricLoader.getInstance().isModLoaded("baritone-fork");
+        if (!baritoneLoaded) {
+            LOGGER.warn("[{}] baritone not installed -- pathfinding-dependent commands will fail until it's added to mods/", MOD_ID);
+        }
+
         ClientLifecycleEvents.CLIENT_STARTED.register(mc -> {
             mc.options.pauseOnLostFocus = false;
-            BaritoneNav.configure();
+            if (baritoneLoaded) BaritoneNav.configure();
         });
     }
 }

@@ -117,7 +117,7 @@ public final class ScriptEventEditScreen extends Screen {
         def.name = eventName;
         ScriptEventStore.save(def);
         ScriptEventBindings.reregister(eventName);
-        Minecraft.getInstance().setScreen(new ScriptEventListScreen());
+        Minecraft.getInstance().gui.setScreen(new ScriptEventListScreen());
     }
 
     @Override

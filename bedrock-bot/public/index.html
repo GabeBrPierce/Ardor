@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ardor Companion</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="instance-picker">
+    <button id="instanceToggle" class="picker-btn">
+      <span id="instanceSummary">No instances</span>
+      <span class="caret">&#9662;</span>
+    </button>
+    <div id="instancePanel" class="picker-panel hidden">
+      <div id="instanceList" class="instance-list"></div>
+      <form id="addInstanceForm" class="add-instance">
+        <select name="kind">
+          <option value="bedrock">Bedrock</option>
+          <option value="java">Java</option>
+        </select>
+        <input name="username" placeholder="Username" required>
+        <input name="host" placeholder="Host (optional)">
+        <input name="port" placeholder="Port" type="number">
+        <button type="submit">+ Add</button>
+      </form>
+    </div>
+  </div>
+
+  <h1>Ardor Companion</h1>
+
+  <button id="settingsBtn" class="gear-btn" title="Settings">&#9881;</button>
+</header>
+
+<nav id="tabBar" class="tab-bar"></nav>
+
+<div id="settingsPanel" class="settings-panel hidden">
+  <h2>App Settings</h2>
+  <label>Default host <input id="setDefaultHost"></label>
+  <label>Default port <input id="setDefaultPort" type="number"></label>
+  <label>Tick interval (ms) <input id="setTickMs" type="number"></label>
+  <label>Walk speed <input id="setWalkSpeed" type="number" step="0.01"></label>
+  <p class="settings-note">Bedrock-only; applies to instances started after saving.</p>
+  <label>Piper binary path <input id="setPiperBinaryPath" placeholder="C:\path\to\piper.exe"></label>
+  <label>Voices directory <input id="setVoicesDir"></label>
+  <p class="settings-note">Narration. Run bedrock-bot/scripts/install-voices.ps1 to populate the voices directory.</p>
+  <div class="settings-actions">
+    <button id="saveSettingsBtn">Save</button>
+    <button id="closeSettingsBtn">Close</button>
+  </div>
+</div>
+
+<main id="tabContent">
+  <div id="emptyState" class="empty-state hidden">Select a Java instance in the dropdown above to use this tab.</div>
+
+  <div id="mapPanel" class="tab-panel hidden">
+    <canvas id="mapCanvas" width="480" height="480"></canvas>
+  </div>
+
+  <div id="view3dPanel" class="tab-panel hidden">
+    <div id="view3dMount"></div>
+  </div>
+
+  <div id="menuMirrorPanel" class="tab-panel hidden">
+    <h2 id="menuMirrorTitle"></h2>
+    <div id="menuMirrorOptions" class="menu-mirror-options"></div>
+  </div>
+
+  <div id="orchestratorPanel" class="tab-panel hidden">
+    <div id="orchestratorCards" class="orchestrator-cards"></div>
+    <form id="orchestratorForm" class="orchestrator-form">
+      <input id="orchestratorInput" placeholder='Command, e.g. go @p, say "hi", script "name"' autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+    <div id="orchestratorResult" class="orchestrator-result"></div>
+  </div>
+
+  <div id="narrationPanel" class="tab-panel hidden">
+    <nav id="narrationSubTabs" class="subtab-bar">
+      <button class="subtab-btn" data-sub="patterns">Pattern to Voice</button>
+      <button class="subtab-btn" data-sub="overrides">Username to Voice</button>
+      <button class="subtab-btn" data-sub="voices">Voice Manager</button>
+      <button class="subtab-btn" data-sub="chat">Chat</button>
+    </nav>
+
+    <div id="narrationPatternsSub" class="narration-sub">
+      <p class="settings-note">First matching rule wins one voice; if a username matches more than one rule, the same username always resolves to the same one of those voices.</p>
+      <table class="narration-table">
+        <thead><tr><th>Voice</th><th>Username regex</th><th></th></tr></thead>
+        <tbody id="patternsTableBody"></tbody>
+      </table>
+      <button id="addPatternBtn" class="row-btn add-row-btn" type="button">+ Add rule</button>
+    </div>
+
+    <div id="narrationOverridesSub" class="narration-sub hidden">
+      <p class="settings-note">A username override always wins over pattern rules. Mute silences that player entirely.</p>
+      <table class="narration-table">
+        <thead><tr><th>Username</th><th>Voice</th><th></th><th></th></tr></thead>
+        <tbody id="overridesTableBody"></tbody>
+      </table>
+      <div id="addOverrideRow" class="add-override-row hidden">
+        <select id="addOverrideUsername"></select>
+        <select id="addOverrideVoice"></select>
+        <button id="confirmAddOverrideBtn" type="button">Add</button>
+        <button id="cancelAddOverrideBtn" type="button">Cancel</button>
+      </div>
+      <button id="addOverrideBtn" class="row-btn add-row-btn" type="button">+ Add</button>
+    </div>
+
+    <div id="narrationVoicesSub" class="narration-sub hidden">
+      <div class="voice-manager-assign">
+        <label>Ardor's own voice (GLaDOS) <select id="ardorVoiceSelect"></select></label>
+        <label>Default voice for unmatched players <select id="defaultVoiceSelect"><option value="">(don't narrate)</option></select></label>
+      </div>
+      <div id="voiceManagerList" class="voice-manager-list"></div>
+    </div>
+
+    <div id="narrationChatSub" class="narration-sub hidden">
+      <div id="narrationChatLog" class="narration-chat-log"></div>
+      <audio id="narrationAudioPlayer"></audio>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/controls/OrbitControls.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

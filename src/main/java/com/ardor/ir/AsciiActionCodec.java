@@ -52,6 +52,7 @@ import java.util.Map;
  *   stop why:mission_complete
  *   sethome
  *   home
+ *   script "mine_and_return"
  * </pre>
  *
  * Known v1 scope gap (kept out deliberately, not silently): item data
@@ -96,6 +97,7 @@ public final class AsciiActionCodec {
             case "tadd": return decodeTaskAdd(rest);
             case "tdel": return decodeTaskDel(rest);
             case "macro": return decodeMacro(rest);
+            case "script": return decodeScript(rest);
             case "query": return decodeQuery(rest);
             case "sethome": return decodeSetHome(rest);
             case "home": return decodeGoHome(rest);
@@ -247,6 +249,14 @@ public final class AsciiActionCodec {
         return a;
     }
 
+    /** script "name" -- runs a saved Lua script (config/ardor-scripts/<name>.lua, see script/ScriptStore + script/ScriptEngine). Same shape as macro, deliberately -- both are "run this saved, named, repeatable thing by name" verbs, just backed by different stores. */
+    private static JsonObject decodeScript(List<String> rest) {
+        if (rest.isEmpty()) throw new IllegalArgumentException("script requires a quoted name: " + rest);
+        JsonObject a = newAction("script");
+        a.addProperty("name", unescapeQuoted(rest.get(0), "script name"));
+        return a;
+    }
+
     /**
      * query time | query search oak_log [r:16] -- read-only info commands, no game effect, result
      * comes back through TaskRunner.Listener.onCommandResult (see QueryController). `what` is always
@@ -347,6 +357,7 @@ public final class AsciiActionCodec {
             case "taskadd": return encodeTaskAdd(action);
             case "taskdel": return encodeTaskDel(action);
             case "macro":  return encodeMacro(action);
+            case "script": return encodeScript(action);
             case "query":  return encodeQuery(action);
             case "sethome": return encodeSetHome(action);
             case "gohome": return encodeGoHome(action);
@@ -461,6 +472,10 @@ public final class AsciiActionCodec {
 
     private static String encodeMacro(JsonObject a) {
         return "macro \"" + escapeMessage(a.get("name").getAsString()) + "\"";
+    }
+
+    private static String encodeScript(JsonObject a) {
+        return "script \"" + escapeMessage(a.get("name").getAsString()) + "\"";
     }
 
     private static String encodeQuery(JsonObject a) {

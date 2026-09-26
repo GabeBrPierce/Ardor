@@ -2,9 +2,12 @@ package com.ardor.game;
 
 import com.google.gson.JsonObject;
 import com.ardor.client.ArdorMasterToggle;
+import com.ardor.client.StatusIndicator;
 import com.ardor.ir.AsciiActionCodec;
 import com.ardor.planner.PlannedTask;
 import com.ardor.planner.TaskRunner;
+import com.ardor.script.ScriptEngine;
+import com.ardor.script.ScriptStore;
 
 import java.util.List;
 
@@ -35,6 +38,26 @@ public final class ActionDispatcher {
         }
         if (verb.equals("taskdel")) {
             TaskRunner.shared().removeTaskAt(action.get("index").getAsInt());
+            return null;
+        }
+        // Same "run this saved, named, repeatable thing" shape as the "macro" verb (handled by
+        // PathfindingController, since macro replay is pathing-adjacent), but a Lua script isn't
+        // representable as a structured IR action -- ScriptWheelKey.run already does exactly this
+        // inline for the wheel's own "script" kind, this is that same load+run, just reachable from
+        // ANY ascii-command source (voice, event hook, task planner, the peer bridge, the freecam
+        // orchestrator's task picker).
+        if (verb.equals("script")) {
+            String name = action.get("name").getAsString();
+            String source;
+            try {
+                source = ScriptStore.load(name);
+            } catch (RuntimeException e) {
+                StatusIndicator.show("script '" + name + "' failed to load: " + e.getMessage());
+                return null;
+            }
+            ScriptEngine.run(source, name, error ->
+                    net.minecraft.client.Minecraft.getInstance().execute(() ->
+                            StatusIndicator.show("script '" + name + "' failed: " + error)));
             return null;
         }
         if (QueryController.handles(verb)) {

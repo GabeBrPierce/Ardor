@@ -59,6 +59,7 @@ public final class SocialGreetingController {
     private static void tickInner(Minecraft client) {
         tick++;
         if (!ArdorMasterToggle.isEnabled()) return;
+        if (!com.ardor.config.ArdorConfig.get().socialGreetingEnabled) return;
         LocalPlayer self = client.player;
         if (self == null || client.level == null) {
             stopGreeting();

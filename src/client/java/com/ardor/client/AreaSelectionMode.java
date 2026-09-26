@@ -1,6 +1,7 @@
 package com.ardor.client;
 
 import com.ardor.game.BreakAreaController;
+import com.ardor.game.BuildAreaController;
 import com.ardor.game.KillAllController;
 import com.ardor.region.RegionManager;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -8,8 +9,11 @@ import net.fabricmc.fabric.api.event.client.player.ClientHotbarScrollEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -29,17 +33,25 @@ import java.util.List;
  * scroll" -- just looking around (without scrolling) no longer reshapes the box at all, unlike the
  * original continuous-pitch-blend version this replaced.
  *
- * Corners mode: two sequential taps, each picking a point via GroundAlignedTargeting -- the exact
- * same scroll-adjustable, ground-aligned targeting logic Single Selection's hologram uses (per
- * the user's explicit request that "the corner selection should use the same logic as the single
- * selection"), rather than just the raw block directly under the crosshair. Each corner gets its
- * own independent distance (reset to the default when moving on to the second corner) via the
- * same scroll hook Radius mode uses for its own sizing.
+ * Corners mode: each corner goes through two taps instead of one. AIM_FIRST/AIM_SECOND track the
+ * crosshair every tick via the player's OWN raw hitResult -- literally whatever block is under the
+ * crosshair, same as vanilla's own block-outline highlight, NOT GroundAlignedTargeting's
+ * scroll-distance-projected/ground-snapped point (that logic is still what Single Selection's own
+ * hologram uses, just no longer shared with Corners -- "AIM should target the block we're looking
+ * at, not the block above or around it"). A tap there locks the point in place and moves to
+ * NUDGE_FIRST/NUDGE_SECOND: the point stops tracking the crosshair and instead scrolling nudges it
+ * one block at a time along whichever axis the player is currently facing
+ * (Direction.getApproximateNearest of the look vector, resolved fresh each scroll tick so turning
+ * to face a different axis changes what the next scroll does) -- this is also how you reach a block
+ * beyond crosshair range or pick a different one than exactly what AIM highlighted, rather than AIM
+ * itself trying to project/snap to one. A second tap sets that corner; for the first corner this
+ * also kicks off AIM_SECOND for the next point, and for the second corner it opens the follow-up
+ * wheel. Four taps total: aim1, lock1, aim2, lock2.
  */
 public final class AreaSelectionMode {
 
     private enum Mode { RADIUS, CORNERS }
-    private enum CornerPhase { PICK_FIRST, PICK_SECOND }
+    private enum CornerPhase { AIM_FIRST, NUDGE_FIRST, AIM_SECOND, NUDGE_SECOND }
 
     private static final double DEFAULT_RADIUS = 5.0;
     private static final double MIN_RADIUS = 2.0;
@@ -59,9 +71,9 @@ public final class AreaSelectionMode {
     // SCROLLING (ensureScrollHook) -- looking around afterward no longer changes the box at all.
     private static double halfXZ = DEFAULT_RADIUS;
     private static double halfY = MIN_HALF_EXTENT;
-    private static double cornerDistance;
     private static CornerPhase cornerPhase;
     private static BlockPos corner1;
+    private static BlockPos activePoint; // tracked live during AIM_*, fixed and nudged during NUDGE_*
 
     private static AABB previewBox;
     private static List<String> overlayLines = List.of();
@@ -90,28 +102,28 @@ public final class AreaSelectionMode {
     public static void startCorners() {
         SingleSelectionMode.stop();
         mode = Mode.CORNERS;
-        cornerPhase = CornerPhase.PICK_FIRST;
+        cornerPhase = CornerPhase.AIM_FIRST;
         corner1 = null;
-        cornerDistance = DEFAULT_RADIUS;
+        activePoint = null;
         active = true;
         ensureTicker();
         ensureScrollHook();
-        StatusIndicator.show("Aim and scroll to place the first corner, tap to set it");
+        StatusIndicator.show("Look at the first corner, tap to lock it");
     }
 
     public static void stop() {
         active = false;
         previewBox = null;
         corner1 = null;
+        activePoint = null;
     }
 
     /**
      * Called on a plain tap while active. Radius mode: confirms the current box immediately.
-     * Corners mode: picks the currently-aimed block as the next corner (or just shows a status
-     * line and stays on the same step if nothing solid is in range). Either way, once the area is
-     * fully captured, opens the follow-up wheel and stops. Returns false only when inactive, so
-     * PickWheelKey always treats a tap as "handled" while area selection is in progress -- there's
-     * no vanilla pick-block fallback mid-selection.
+     * Corners mode: advances the AIM_FIRST -> NUDGE_FIRST -> AIM_SECOND -> NUDGE_SECOND state
+     * machine one step (see class doc). Returns false only when inactive, so PickWheelKey always
+     * treats a tap as "handled" while area selection is in progress -- there's no vanilla
+     * pick-block fallback mid-selection.
      */
     public static boolean tryConfirm() {
         if (!active) return false;
@@ -123,41 +135,64 @@ public final class AreaSelectionMode {
             return true;
         }
 
-        BlockPos picked = currentCornerTarget();
-        if (picked == null) return true; // no player/level loaded -- nothing to pick yet
+        if (activePoint == null) return true; // no player/level loaded -- nothing to pick yet
 
-        if (cornerPhase == CornerPhase.PICK_FIRST) {
-            corner1 = picked;
-            cornerPhase = CornerPhase.PICK_SECOND;
-            cornerDistance = DEFAULT_RADIUS;
-            StatusIndicator.show("First corner set -- aim at the second and tap again");
-            return true;
+        switch (cornerPhase) {
+            case AIM_FIRST -> {
+                cornerPhase = CornerPhase.NUDGE_FIRST;
+                StatusIndicator.show("First point locked -- scroll to nudge, tap to set it");
+            }
+            case NUDGE_FIRST -> {
+                corner1 = activePoint;
+                cornerPhase = CornerPhase.AIM_SECOND;
+                StatusIndicator.show("First corner set -- look at the second and tap again");
+            }
+            case AIM_SECOND -> {
+                cornerPhase = CornerPhase.NUDGE_SECOND;
+                StatusIndicator.show("Second point locked -- scroll to nudge, tap to set it");
+            }
+            case NUDGE_SECOND -> {
+                BlockPos picked = activePoint;
+                AABB box = new AABB(corner1.getX(), corner1.getY(), corner1.getZ(), picked.getX() + 1, picked.getY() + 1, picked.getZ() + 1);
+                stop();
+                openFollowUpWheel(box);
+            }
         }
-
-        AABB box = new AABB(corner1.getX(), corner1.getY(), corner1.getZ(), picked.getX() + 1, picked.getY() + 1, picked.getZ() + 1);
-        stop();
-        openFollowUpWheel(box);
         return true;
     }
 
-    /** The current corner candidate, via GroundAlignedTargeting (same logic Single Selection's hologram uses) -- ground-aligned position if aligned, otherwise the raw point floored to a block position. Null only if there's no player/level loaded. */
+    /** Literally whatever block the crosshair (or, in Sims mode, the free cursor -- see CursorRaycast) is currently hitting -- null if nothing's in range/looked at. "Target the block we're looking at, not the block above or around it." */
     private static BlockPos currentCornerTarget() {
         Minecraft client = Minecraft.getInstance();
-        LocalPlayer player = client.player;
-        if (player == null || client.level == null) return null;
-        GroundAlignedTargeting.Result result = GroundAlignedTargeting.compute(client, player, cornerDistance);
-        return result.groundAligned() ? result.groundPos() : BlockPos.containing(result.point().x, result.point().y, result.point().z);
+        if (client.player == null || client.level == null) return null;
+        HitResult hit = CameraModeController.mode() == CameraModeController.Mode.SIMS
+                ? SimsCameraController.cursorHit()
+                : client.hitResult;
+        if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) return null;
+        return blockHit.getBlockPos();
     }
 
     private static void openFollowUpWheel(AABB box) {
-        Minecraft.getInstance().setScreen(new ArdorWheelScreen(List.of(
+        Minecraft.getInstance().gui.setScreen(new ArdorWheelScreen(List.of(
                 new ArdorWheelScreen.WheelOption("Set As Region", () -> setAsRegion(box)),
                 new ArdorWheelScreen.WheelOption("Break Blocks Within", () -> startBreakBlocksWithin(box)),
+                new ArdorWheelScreen.WheelOption("Build Blocks Within", () -> startBuildBlocksWithin(box)),
                 new ArdorWheelScreen.WheelOption("Kill Hostile Mobs", () -> {
                     KillAllController.startHostilesInArea(box);
                     StatusIndicator.show("Killing hostiles in the selected area");
                 })
         )));
+    }
+
+    /** Opens BuildBlocksScreen to pick sources for whatever's empty in box -- same "nothing to do" short-circuit startBreakBlocksWithin already has for the opposite case. */
+    private static void startBuildBlocksWithin(AABB box) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) return;
+        if (BuildAreaController.enumerate(box, level).isEmpty()) {
+            StatusIndicator.show("Nothing to build -- the area is already full.");
+            return;
+        }
+        Minecraft.getInstance().gui.setScreen(new BuildBlocksScreen(box));
     }
 
     /**
@@ -172,7 +207,7 @@ public final class AreaSelectionMode {
         BlockPos a = BlockPos.containing(box.minX, box.minY, box.minZ);
         BlockPos b = BlockPos.containing(box.maxX - 1, box.maxY - 1, box.maxZ - 1);
         RegionManager.get().setRegion(profileKey, name, a, b);
-        Minecraft.getInstance().setScreen(new RegionEditScreen(name));
+        Minecraft.getInstance().gui.setScreen(new RegionEditScreen(name));
     }
 
     /**
@@ -193,7 +228,7 @@ public final class AreaSelectionMode {
             return;
         }
         if (!BreakAreaController.hasRoughCapacityFor(blocks.size())) {
-            Minecraft.getInstance().setScreen(new ArdorWheelScreen(List.of(
+            Minecraft.getInstance().gui.setScreen(new ArdorWheelScreen(List.of(
                     new ArdorWheelScreen.WheelOption("Add More Containers", () -> {
                         StatusIndicator.show("Obtaining a container...");
                         BreakAreaController.obtainAndPlaceContainer(box, placedAt -> {
@@ -238,10 +273,20 @@ public final class AreaSelectionMode {
                 } else {
                     halfXZ = Math.max(MIN_HALF_EXTENT, Math.min(MAX_RADIUS, halfXZ + scrollY));
                 }
-            } else {
-                cornerDistance = Math.max(GroundAlignedTargeting.MIN_DISTANCE, Math.min(GroundAlignedTargeting.MAX_DISTANCE, cornerDistance + scrollY));
+                return false;
             }
-            return false;
+            // CORNERS: AIM_* tracks the crosshair directly and doesn't need scroll -- let normal
+            // hotbar scrolling through. Only NUDGE_* consumes it, to move the locked point.
+            if ((cornerPhase == CornerPhase.NUDGE_FIRST || cornerPhase == CornerPhase.NUDGE_SECOND) && activePoint != null) {
+                LocalPlayer player = Minecraft.getInstance().player;
+                if (player != null) {
+                    Vec3 look = player.getLookAngle();
+                    Direction facing = Direction.getApproximateNearest(look.x, look.y, look.z);
+                    activePoint = activePoint.relative(facing, (int) Math.signum(scrollY));
+                }
+                return false;
+            }
+            return true;
         });
     }
 
@@ -259,16 +304,19 @@ public final class AreaSelectionMode {
             return;
         }
 
-        // CORNERS: show the current targeting point, or a growing box from corner1 to it once picked.
-        BlockPos current = currentCornerTarget();
-        if (current == null) {
+        // CORNERS: AIM_* re-tracks the crosshair every tick; NUDGE_* leaves activePoint alone
+        // (the scroll hook moves it instead) so the point doesn't jump back to the crosshair.
+        if (cornerPhase == CornerPhase.AIM_FIRST || cornerPhase == CornerPhase.AIM_SECOND) {
+            activePoint = currentCornerTarget();
+        }
+        if (activePoint == null) {
             previewBox = null;
             overlayLines = List.of();
             return;
         }
-        previewBox = cornerPhase == CornerPhase.PICK_FIRST || corner1 == null
-                ? new AABB(current)
-                : new AABB(corner1.getX(), corner1.getY(), corner1.getZ(), current.getX() + 1, current.getY() + 1, current.getZ() + 1);
+        previewBox = corner1 == null
+                ? new AABB(activePoint)
+                : new AABB(corner1.getX(), corner1.getY(), corner1.getZ(), activePoint.getX() + 1, activePoint.getY() + 1, activePoint.getZ() + 1);
         overlayLines = buildCornersOverlayLines(previewBox);
     }
 
@@ -290,12 +338,19 @@ public final class AreaSelectionMode {
 
     private static List<String> buildCornersOverlayLines(AABB box) {
         List<String> lines = new ArrayList<>();
-        lines.add("Area Selection: Corners");
+        lines.add("Area Selection: Corners (" + cornerPhaseLabel() + ")");
         lines.add(sizeLine(box));
         if (corner1 != null) {
             lines.add("First corner: " + corner1.getX() + ", " + corner1.getY() + ", " + corner1.getZ());
         }
         return lines;
+    }
+
+    private static String cornerPhaseLabel() {
+        return switch (cornerPhase) {
+            case AIM_FIRST, AIM_SECOND -> "look at target, tap to lock";
+            case NUDGE_FIRST, NUDGE_SECOND -> "scroll to nudge, tap to set";
+        };
     }
 
     private static String sizeLine(AABB box) {

@@ -99,7 +99,7 @@ public final class WheelEditScreen extends Screen {
 
     private void onSave() {
         ScriptWheelStore.save(wheelName, entries);
-        Minecraft.getInstance().setScreen(new WheelListScreen());
+        Minecraft.getInstance().gui.setScreen(new WheelListScreen());
     }
 
     @Override

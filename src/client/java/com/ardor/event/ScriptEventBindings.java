@@ -1,6 +1,7 @@
 package com.ardor.event;
 
 import com.ardor.client.ScriptWheelKey;
+import com.ardor.client.StatusIndicator;
 import com.ardor.script.ScriptEngine;
 import com.ardor.script.ScriptStore;
 import com.ardor.script.ScriptWheelEntry;
@@ -10,7 +11,7 @@ import com.ardor.script.ScriptWheelEntry;
  * -- register() does this for all of them once at mod init; reregister(name) re-applies just one,
  * called by ScriptEventEditScreen's Save so an edit takes effect immediately instead of needing a
  * restart. The predicate script is reloaded from ScriptStore on every poll (not cached), same
- * "always run whatever's currently saved" behavior ScriptKeybinds/MacroKeybinds already have.
+ * "always run whatever's currently saved" behavior DynamicKeybinds already has.
  */
 public final class ScriptEventBindings {
 
@@ -28,9 +29,12 @@ public final class ScriptEventBindings {
 
         ScriptEventRegistry.setEvent(def.name, Math.max(1, def.intervalTicks), () -> {
             try {
-                return ScriptEngine.runPredicate(ScriptStore.load(def.predicateScript));
+                String result = ScriptStore.load(def.predicateScript);
+                StatusIndicator.clearOnce("event-load:" + def.name);
+                return ScriptEngine.runPredicate(result, "event-predicate:" + def.name);
             } catch (RuntimeException e) {
                 System.err.println("[ardor] script event '" + def.name + "' predicate script '" + def.predicateScript + "' failed to load: " + e.getMessage());
+                StatusIndicator.showOnce("event-load:" + def.name, "Script event '" + def.name + "' predicate script '" + def.predicateScript + "' failed to load: " + e.getMessage());
                 return false;
             }
         });

@@ -42,7 +42,7 @@ public final class SubContainerAccess {
         ItemContainerContents shulker = host.get(DataComponents.CONTAINER);
         if (shulker != null) return shulker.nonEmptyItemCopyStream().toList();
         BundleContents bundle = host.get(DataComponents.BUNDLE_CONTENTS);
-        if (bundle != null) return bundle.itemCopyStream().toList();
+        if (bundle != null) return bundle.itemCopies().toList();
         return List.of();
     }
 

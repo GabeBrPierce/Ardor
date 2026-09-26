@@ -186,7 +186,7 @@ public final class ArdorSettingsScreen {
                 .build());
         bridge.addEntry(eb.startStrField(Component.literal("Companion Launcher Path"), cfg.companionLauncherPath)
                 .setDefaultValue("")
-                .setTooltip(Component.literal("Path to Ardor-Companion's generated launcher script, e.g. ...\\Ardor-Companion\\build\\install\\ardor-companion\\bin\\ardor-companion.bat. Blank = the Companion UI button can't start it for you."))
+                .setTooltip(Component.literal("Path to bedrock-bot's manager.js (run with node) or a .bat wrapping it, e.g. ...\\Ardor\\bedrock-bot\\manager.js. Blank = the Companion UI button can't start it for you."))
                 .setSaveConsumer(v -> cfg.companionLauncherPath = v)
                 .build());
 
@@ -209,6 +209,40 @@ public final class ArdorSettingsScreen {
                 .build());
         // The `peers` list (name/host/port entries) has no editor here -- edit config/ardor.json by
         // hand for now, see TODO.md.
+
+        ConfigCategory behavior = builder.getOrCreateCategory(Component.literal("Behavior"));
+        padTop(eb, behavior);
+        behavior.addEntry(eb.startBooleanToggle(Component.literal("Social Greeting"), cfg.socialGreetingEnabled)
+                .setDefaultValue(false)
+                .setTooltip(Component.literal("Crouch/jump/strafe gesture toward peaceful nearby players (see SocialGreetingController). Off by default -- looks suspicious to a real player who notices it."))
+                .setSaveConsumer(v -> cfg.socialGreetingEnabled = v)
+                .build());
+
+        // See client/HudManager.java. The four Show toggles wrap vanilla's own HUD elements via
+        // HudElementRegistry.replaceElement, re-read every frame, so they take effect immediately.
+        ConfigCategory hud = builder.getOrCreateCategory(Component.literal("HUD"));
+        padTop(eb, hud);
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Mirror Action Bar To Chat"), cfg.hudMirrorActionBarToChat)
+                .setDefaultValue(true)
+                .setTooltip(Component.literal("Copies every action-bar message into the chat log so it scrolls back instead of vanishing. Purely local -- nothing is sent to the server."))
+                .setSaveConsumer(v -> cfg.hudMirrorActionBarToChat = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Action Bar"), cfg.hudActionBarVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudActionBarVisible = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Boss Bars"), cfg.hudBossBarVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudBossBarVisible = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Scoreboard"), cfg.hudScoreboardVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudScoreboardVisible = v)
+                .build());
+        hud.addEntry(eb.startBooleanToggle(Component.literal("Show Title/Subtitle"), cfg.hudTitleVisible)
+                .setDefaultValue(true)
+                .setSaveConsumer(v -> cfg.hudTitleVisible = v)
+                .build());
 
         return builder.build();
     }

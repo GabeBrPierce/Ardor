@@ -7,7 +7,9 @@ import com.ardor.container.ContainerSource;
 import com.ardor.container.SourceManager;
 import com.ardor.container.SourceType;
 import com.ardor.game.GameActionController;
+import com.ardor.game.HarvestController;
 import com.ardor.game.KillAllController;
+import com.ardor.game.KillPercentController;
 import com.ardor.game.PathfindingController;
 import com.ardor.game.SelectorResolver;
 import com.ardor.region.RegionManager;
@@ -168,7 +170,7 @@ public final class SingleSelectionMode {
     public static boolean tryEditContainer() {
         if (!active || kind != Kind.CONTAINER || targetContainerPos == null) return false;
         ContainerSource source = SourceManager.get().findOrCreatePhysicalAt(targetContainerPos, SourceType.PHYSICAL);
-        Minecraft.getInstance().setScreen(new SourceEditScreen(source.id));
+        Minecraft.getInstance().gui.setScreen(new SourceEditScreen(source.id));
         stop(); // same "selection is a completed action" reasoning as tryGoHere()
         return true;
     }
@@ -201,6 +203,15 @@ public final class SingleSelectionMode {
                     KillAllController.start(entity.getType());
                     StatusIndicator.show("Killing all " + name + "-type entities nearby");
                 }),
+                new ArdorWheelScreen.WheelOption("Kill % " + name, () ->
+                        promptPercent("What percent of " + name + " should we kill?", pct ->
+                                KillPercentController.startByType(entity.getType(), name, pct))),
+                new ArdorWheelScreen.WheelOption("Kill % Hostile", () ->
+                        promptPercent("What percent of Hostile mobs should we kill?", pct ->
+                                KillPercentController.startByCategory("hostile", pct))),
+                new ArdorWheelScreen.WheelOption("Kill % Passive", () ->
+                        promptPercent("What percent of Passive mobs should we kill?", pct ->
+                                KillPercentController.startByCategory("passive", pct))),
                 new ArdorWheelScreen.WheelOption("Defend", () -> {
                     String category = SelectorResolver.categoryOf(entity);
                     if (category == null) {
@@ -212,6 +223,94 @@ public final class SingleSelectionMode {
                     }
                 })
         );
+    }
+
+    /**
+     * The block sub-wheel -- go/break/harvest actions for whatever the ground-aligned aim currently
+     * resolves to (see GroundAlignedTargeting -- goHereTarget is the STANDING position; the actual
+     * block is goHereTarget.below(), same as the existing "Go Here: <block name>" overlay text
+     * already computes). Only ever non-null for the HOLOGRAM kind (never entity/container, which
+     * have their own dedicated wheels) so this doesn't change anything about how those already work.
+     */
+    public static List<ArdorWheelScreen.WheelOption> blockSubWheelOptions() {
+        if (!active || kind != Kind.HOLOGRAM || !groundAligned || goHereTarget == null) return null;
+        BlockPos standPos = goHereTarget;
+        BlockPos belowPos = standPos.below();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return null;
+
+        // Crops (wheat family, nether wart, sugar cane) are non-solid and occupy the STAND position
+        // itself, not the block below it -- unlike a solid block (melon/pumpkin included), which is
+        // exactly what "below" already means. Check both; prefer whichever actually classifies.
+        BlockState standState = mc.level.getBlockState(standPos);
+        HarvestController.CropKind standCrop = HarvestController.classify(mc.level, standPos, standState);
+        BlockPos blockPos = standCrop != null ? standPos : belowPos;
+        BlockState state = standCrop != null ? standState : mc.level.getBlockState(belowPos);
+        String blockName = state.getBlock().getName().getString();
+
+        List<ArdorWheelScreen.WheelOption> options = new ArrayList<>();
+        options.add(new ArdorWheelScreen.WheelOption("Go to", () -> goToStandPos(standPos)));
+        options.add(new ArdorWheelScreen.WheelOption("Select Area", AreaSelectionMode::startCorners));
+        options.add(new ArdorWheelScreen.WheelOption("Break Block", () -> BlockWheelActions.breakOne(blockPos)));
+        options.add(new ArdorWheelScreen.WheelOption("Break # of Blocks", () ->
+                promptCount("How many " + blockName + " should we break?", n ->
+                        BlockWheelActions.breakCount(state.getBlock(), blockPos, n))));
+
+        HarvestController.CropKind crop = standCrop != null ? standCrop : HarvestController.classify(mc.level, blockPos, state);
+        if (crop != null) {
+            options.add(new ArdorWheelScreen.WheelOption("Harvest One", () -> HarvestController.harvestOne(blockPos, crop)));
+            options.add(new ArdorWheelScreen.WheelOption("Harvest %", () ->
+                    promptPercent("What percent of crops should we harvest?", pct ->
+                            HarvestController.harvestPercent(blockPos, crop, pct))));
+            options.add(new ArdorWheelScreen.WheelOption("Tend Field", () -> HarvestController.startTendField(blockPos, crop)));
+        }
+        return options;
+    }
+
+    /** Whichever sub-wheel applies to the current target (entity, then block), or a bare "Go Here" fallback if neither does -- used by Sims mode's right-click (PickWheelKey's hold gesture already checks entitySubWheelOptions()/the main wheel separately and doesn't need this). */
+    public static List<ArdorWheelScreen.WheelOption> currentSubWheelOptions() {
+        List<ArdorWheelScreen.WheelOption> entityOptions = entitySubWheelOptions();
+        if (entityOptions != null) return entityOptions;
+        List<ArdorWheelScreen.WheelOption> blockOptions = blockSubWheelOptions();
+        if (blockOptions != null) return blockOptions;
+        if (kind == Kind.CONTAINER) {
+            return List.of(new ArdorWheelScreen.WheelOption("Edit Container", () -> tryEditContainer()));
+        }
+        return List.of(new ArdorWheelScreen.WheelOption("Go Here", SingleSelectionMode::tryGoHere));
+    }
+
+    private static void goToStandPos(BlockPos standPos) {
+        if (com.ardor.game.FlightNav.available()) {
+            com.ardor.game.FlightNav.flyTo(net.minecraft.world.phys.Vec3.atCenterOf(standPos), null, reason ->
+                    StatusIndicator.show("Go to failed: " + reason));
+        } else {
+            BaritoneNav.goTo(standPos.getX(), standPos.getY(), standPos.getZ());
+        }
+        StatusIndicator.show("Going to @" + standPos.getX() + "," + standPos.getY() + "," + standPos.getZ());
+    }
+
+    private static void promptPercent(String question, java.util.function.IntConsumer onPercent) {
+        Minecraft.getInstance().gui.setScreen(new TextInputPromptScreen(question, answer -> {
+            if (answer == null) return;
+            try {
+                int pct = Math.max(0, Math.min(100, Integer.parseInt(answer.trim().replace("%", ""))));
+                onPercent.accept(pct);
+            } catch (NumberFormatException e) {
+                StatusIndicator.show("Not a number: " + answer);
+            }
+        }));
+    }
+
+    private static void promptCount(String question, java.util.function.IntConsumer onCount) {
+        Minecraft.getInstance().gui.setScreen(new TextInputPromptScreen(question, answer -> {
+            if (answer == null) return;
+            try {
+                int n = Math.max(1, Integer.parseInt(answer.trim()));
+                onCount.accept(n);
+            } catch (NumberFormatException e) {
+                StatusIndicator.show("Not a number: " + answer);
+            }
+        }));
     }
 
     private static void clearState() {
@@ -243,6 +342,12 @@ public final class SingleSelectionMode {
         if (scrollHookRegistered) return;
         scrollHookRegistered = true;
         ClientHotbarScrollEvents.ALLOW.register((inventory, oldSlot, newSlot, scrollX, scrollY) -> {
+            // Sims mode's own scroll hook (SimsCameraController) owns scroll for dolly/zoom instead
+            // -- the ground-aligned "aim distance" concept below is meaningless for a cursor-based
+            // target (Sims already knows exactly what's under the cursor via a real raycast, it
+            // never needs to guess a distance along a fixed ray the way the crosshair-based hologram
+            // does), and letting both react to the same scroll at once would fight each other.
+            if (CameraModeController.mode() == CameraModeController.Mode.SIMS) return true;
             if (!active || kind != Kind.HOLOGRAM) return true;
             distance = Math.max(GroundAlignedTargeting.MIN_DISTANCE, Math.min(GroundAlignedTargeting.MAX_DISTANCE, distance + scrollY));
             return false;
@@ -257,7 +362,9 @@ public final class SingleSelectionMode {
             return;
         }
 
-        HitResult hit = client.hitResult;
+        HitResult hit = CameraModeController.mode() == CameraModeController.Mode.SIMS
+                ? SimsCameraController.cursorHit()
+                : client.hitResult;
 
         if (hit != null && hit.getType() == HitResult.Type.ENTITY && hit instanceof EntityHitResult entityHit) {
             Entity entity = entityHit.getEntity();

@@ -24,10 +24,14 @@ import re
 from pathlib import Path
 
 SYSTEM_PROMPT = (
-    "You control a Minecraft bot. Reply with exactly one command in this "
-    "compact ASCII grammar, nothing else: "
+    "You control a Minecraft bot. For a one-off request, reply with exactly one "
+    "command in this compact ASCII grammar, nothing else: "
     "go/flw/mine/plc/crf/smt/eq/atk/drp/use/say/stop, "
-    "e.g. 'go @12,64,-8 range:2', 'mine diamond_ore n:3', 'atk @e[type=zombie,limit=1,sort=nearest] until:dead'."
+    "e.g. 'go @12,64,-8 range:2', 'mine diamond_ore n:3', 'atk @e[type=zombie,limit=1,sort=nearest] until:dead'. "
+    "For a request asking you to build a reusable or repeatable script/routine "
+    "(e.g. 'make me a routine that...', 'write a script that...', 'build me an "
+    "automation that...'), reply with nothing but a Lua script in a fenced code "
+    "block, nothing else: ```lua\n...\n```."
 )
 
 WRAPPERS = ["{s}", "please {s}", "can you {s}", "{s} now", "I need you to {s}", "go ahead and {s}", "hey, {s}"]

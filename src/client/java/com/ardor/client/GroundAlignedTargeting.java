@@ -43,9 +43,8 @@ public final class GroundAlignedTargeting {
     }
 
     public static boolean isAltHeld() {
-        var window = Minecraft.getInstance().getWindow();
-        return InputConstants.isKeyDown(window, InputConstants.KEY_LALT)
-                || InputConstants.isKeyDown(window, InputConstants.KEY_RALT);
+        return InputConstants.isKeyDown(InputConstants.KEY_LALT)
+                || InputConstants.isKeyDown(InputConstants.KEY_RALT);
     }
 
     /** First solid block straight below `point`, or null if none within GROUND_SCAN_DEPTH (e.g. aiming out over a void) -- caller falls back to the raw, unaligned point. */

@@ -92,8 +92,8 @@ public final class RealCraftingController {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
         InventoryMenu menu = player.inventoryMenu;
-        mc.setScreen(new InventoryScreen(player));
-        runCraftLoop(menu, holder, wanted, 0, () -> mc.setScreen(null), onReady, onFailed);
+        mc.gui.setScreen(new InventoryScreen(player));
+        runCraftLoop(menu, holder, wanted, 0, () -> mc.gui.setScreen(null), onReady, onFailed);
     }
 
     // ------------------------------------------------------- 3x3: finding/obtaining a real table
@@ -138,7 +138,7 @@ public final class RealCraftingController {
     }
 
     private static BlockPos findNearbyTable(Level level, BlockPos center) {
-        for (BlockPos pos : BlockPos.withinManhattan(center, TABLE_SEARCH_RADIUS, TABLE_SEARCH_RADIUS, TABLE_SEARCH_RADIUS)) {
+        for (BlockPos pos : BlockPos.withinManhattan(center, TABLE_SEARCH_RADIUS)) {
             if (level.getBlockState(pos).is(Blocks.CRAFTING_TABLE)) return pos.immutable();
         }
         return null;
@@ -175,7 +175,9 @@ public final class RealCraftingController {
     }
 
     private static BlockPos findPlacementSpot(Level level, BlockPos near) {
-        for (BlockPos pos : BlockPos.withinManhattan(near, PLACEMENT_SEARCH_RADIUS, 2, PLACEMENT_SEARCH_RADIUS)) {
+        BlockPos min = near.offset(-PLACEMENT_SEARCH_RADIUS, -2, -PLACEMENT_SEARCH_RADIUS);
+        BlockPos max = near.offset(PLACEMENT_SEARCH_RADIUS, 2, PLACEMENT_SEARCH_RADIUS);
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
             if (level.getBlockState(pos).isAir()
                     && level.getBlockState(pos.above()).isAir()
                     && !level.getBlockState(pos.below()).isAir()) {
@@ -218,9 +220,9 @@ public final class RealCraftingController {
                     Minecraft mc = Minecraft.getInstance();
                     LocalPlayer player = mc.player;
                     CraftingMenu menu = (CraftingMenu) player.containerMenu;
-                    mc.setScreen(new CraftingScreen(menu, player.getInventory(), Component.translatable("container.crafting")));
+                    mc.gui.setScreen(new CraftingScreen(menu, player.getInventory(), Component.translatable("container.crafting")));
                     runCraftLoop(menu, holder, wanted, 0,
-                            () -> { player.closeContainer(); mc.setScreen(null); },
+                            () -> { player.closeContainer(); mc.gui.setScreen(null); },
                             onReady, onFailed);
                 },
                 () -> onFailed.accept("crafting table never opened a menu (timed out)"));

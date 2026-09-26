@@ -169,10 +169,10 @@ public final class TaskPlannerScreen extends Screen {
                 .build());
 
         pos = flow.next(60);
-        addRenderableWidget(Button.builder(Component.literal("Regions"), b -> Minecraft.getInstance().setScreen(new RegionListScreen()))
+        addRenderableWidget(Button.builder(Component.literal("Regions"), b -> Minecraft.getInstance().gui.setScreen(new RegionListScreen()))
                 .bounds(pos[0], pos[1], 60, 20).build());
         pos = flow.next(55);
-        addRenderableWidget(Button.builder(Component.literal("Events"), b -> Minecraft.getInstance().setScreen(new EventConfigScreen()))
+        addRenderableWidget(Button.builder(Component.literal("Events"), b -> Minecraft.getInstance().gui.setScreen(new EventConfigScreen()))
                 .bounds(pos[0], pos[1], 55, 20).build());
 
         pos = flow.next(90);

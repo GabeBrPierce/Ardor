@@ -106,6 +106,7 @@ final class BridgeDispatcher {
             case "system.resumeWorld" -> WorldResumer.resumeWorld(msg.has("name") ? msg.get("name").getAsString() : null);
             case "system.respawn" -> WorldResumer.respawn();
             case "system.setDifficulty" -> WorldResumer.setDifficulty(msg.get("difficulty").getAsString());
+            case "ui.openMenu" -> Minecraft.getInstance().gui.setScreen(new com.ardor.client.ArdorConfigScreen(null));
             case "ui.select" -> BridgeUIController.select(msg);
             case "nav.goto" -> BaritoneNav.goTo(msg);
             case "nav.stop" -> BaritoneNav.stop();
@@ -125,6 +126,13 @@ final class BridgeDispatcher {
             case "container.source.setEnabled" -> BridgeContainerController.sourceSetEnabled(msg);
             case "container.cache.refresh" -> BridgeContainerController.cacheRefresh(msg);
             case "container.fetch" -> BridgeContainerController.fetch(msg);
+            // {text: "<ascii command>"} -- runs one command through the SAME AsciiActionCodec/
+            // ActionDispatcher funnel voice/event/task-planner/PeerServer commands already go
+            // through (ArdorMasterToggle/PanicStop gating applies here too, for free). This is the
+            // bridge-side equivalent of PeerServer's own "command" op -- lets the companion (or
+            // anything else driving the bridge protocol) fan a single ascii command out to a
+            // specific Java instance it manages, the same way PeerClient already does peer-to-peer.
+            case "action.execute" -> com.ardor.game.ActionDispatcher.execute(msg.get("text").getAsString());
             default -> throw new IllegalArgumentException("unknown command: " + command);
         }
     }

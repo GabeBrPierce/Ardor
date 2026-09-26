@@ -84,7 +84,7 @@ public final class RegionCommands {
 
     private static int executeEditRegion(com.mojang.brigadier.context.CommandContext<FabricClientCommandSource> ctx) {
         String name = StringArgumentType.getString(ctx, "name");
-        ctx.getSource().getClient().execute(() -> ctx.getSource().getClient().setScreen(new RegionEditScreen(name)));
+        ctx.getSource().getClient().execute(() -> ctx.getSource().getClient().gui.setScreen(new RegionEditScreen(name)));
         return 1;
     }
 }

@@ -1,14 +1,21 @@
 package com.ardor.script;
 
 import com.ardor.bridge.PeerClient;
+import com.ardor.client.ActivityTracker;
 import com.ardor.client.ArdorMasterToggle;
 import com.ardor.client.ArdorWheelScreen;
+import com.ardor.client.CheckBoxPromptScreen;
+import com.ardor.client.HudManager;
+import com.ardor.client.KeybindControl;
+import com.ardor.client.MultipleChoicePromptScreen;
 import com.ardor.client.ScriptWheelKey;
 import com.ardor.client.StatusIndicator;
+import com.ardor.client.TextInputPromptScreen;
 import com.ardor.config.ArdorConfig;
 import com.ardor.container.CacheSearch;
 import com.ardor.container.CommandCooldowns;
 import com.ardor.event.ScriptEventRegistry;
+import com.ardor.game.BlockIndex;
 import com.ardor.game.BreakAreaController;
 import com.ardor.game.GameActionController;
 import com.ardor.game.HotbarUtil;
@@ -39,6 +46,7 @@ import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.AABB;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaError;
@@ -46,6 +54,7 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaThread;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.DebugLib;
 import org.luaj.vm2.lib.OneArgFunction;
 import org.luaj.vm2.lib.TwoArgFunction;
 import org.luaj.vm2.lib.VarArgFunction;
@@ -119,19 +128,159 @@ public final class ScriptEngine {
      * (ScriptEventBindings/ScriptEventEditScreen), not the coroutine-based run() everything else
      * uses. A predicate script that calls a blocking binding (pause, home, ...) gets LuaJ's own
      * "cannot yield" LuaError, caught here same as an inline EventManager predicate function.
+     * errorKey dedups a persistently-failing predicate to one chat line instead of one per poll
+     * (see StatusIndicator.showOnce) -- callers pass something stable per predicate, e.g. the event name.
      */
-    public static boolean runPredicate(String source) {
+    public static boolean runPredicate(String source, String errorKey) {
         try {
-            return globals().load(source, "event-predicate").call().toboolean();
+            boolean result = globals().load(source, "event-predicate").call().toboolean();
+            StatusIndicator.clearOnce(errorKey);
+            return result;
         } catch (LuaError e) {
             System.err.println("[ardor] event predicate script failed: " + e.getMessage());
+            StatusIndicator.showOnce(errorKey, "Event predicate script failed: " + e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Compiles `source` without running it (LuaJ's own real parser, not a hand-rolled checker --
+     * accurate, no false positives) -- for ScriptEditScreen's live syntax status. Null if it
+     * compiles cleanly; otherwise LuaJ's own error message, typically "chunkname:LINE: message".
+     */
+    public static String checkSyntax(String source) {
+        try {
+            globals().load(source, "syntax-check");
+            return null;
+        } catch (LuaError e) {
+            return e.getMessage();
         }
     }
 
     /** Cancels EVERY running script, not one handle -- simplest reading of "//ardor script stop" now that several can be in flight. Can't forcibly unwind a suspended coroutine (LuaJ has no hard kill); dropping the reference just means it's never resumed again. */
     public static void cancel() {
         RUNNING.clear();
+    }
+
+    // ------------------------------------------------------------------ step debugging
+
+    /**
+     * One paused-or-running debug session, the UI's handle for step()/cancelDebug() and reading
+     * locals. Several can be in flight independently -- LuaJ 3.0.1's debug-hook state lives on
+     * LuaThread$State, not the shared Globals, confirmed via bytecode, so debugging one script
+     * doesn't interfere with another running (debugged or not) at the same time.
+     */
+    public static final class DebugSession {
+        final LuaThread thread;
+        volatile Runnable pendingStep;
+
+        private DebugSession(LuaThread thread) {
+            this.thread = thread;
+        }
+
+        /** True once paused at a line and waiting for step() -- false while running, finished, or errored. */
+        public boolean isPaused() {
+            return pendingStep != null;
+        }
+    }
+
+    private static boolean debugLibLoaded;
+
+    /**
+     * Lazily loads DebugLib into the shared Globals the first time debugging is used, then leaves
+     * it loaded for the rest of the session rather than trying to precisely toggle it on/off.
+     * Simpler and safer -- LuaJ's interpreter loop calls debuglib.onInstruction for every
+     * instruction of every script once globals.debuglib is non-null (a real per-instruction cost,
+     * confirmed via bytecode), even for undebugged scripts, so this does cost a little forever
+     * after the first debug session -- but toggling it back off mid-session risks desyncing a
+     * differently-running thread's own onCall/onReturn pairing, which is worse. This mod's actual
+     * scripts (interval-polled predicates, occasional keybind/wheel runs) aren't tight loops, so the
+     * overhead should be negligible in practice; not measured live.
+     */
+    private static void ensureDebugLib() {
+        if (debugLibLoaded) return;
+        debugLibLoaded = true;
+        globals().load(new DebugLib());
+    }
+
+    /**
+     * Starts `source` as a stepped debug session -- a real LuaJ line hook (debug.sethook(thread,
+     * fn, "l"), PUC-Lua's own hook semantics) yields through the exact same suspend() bridge every
+     * blocking binding already uses, once per line, and only advances on step(). Safe because
+     * LuaJ 3.0.1's coroutines are real parked Java threads (confirmed via bytecode) -- nothing
+     * needs to unwind for a yield fired from deep inside a hook callback to work. onPause is called
+     * on the client thread every time a new line is reached, with the 1-based line number.
+     */
+    public static DebugSession startDebug(String source, String scriptName, Consumer<Integer> onPause, Consumer<String> onError) {
+        ensureDebugLib();
+        Globals g = globals();
+        LuaValue chunk;
+        try {
+            chunk = g.load(source, scriptName);
+        } catch (LuaError e) {
+            onError.accept("script failed to parse: " + e.getMessage());
+            return null;
+        }
+        g.set("ArdorUsers", buildArdorUsers());
+        LuaThread thread = new LuaThread(g, chunk);
+        DebugSession session = new DebugSession(thread);
+
+        LuaValue hook = new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int line = args.arg(2).toint(); // PUC hook args: (event, line)
+                Minecraft.getInstance().execute(() -> onPause.accept(line));
+                return suspend(done -> session.pendingStep = () -> done.accept(LuaValue.NONE));
+            }
+        };
+        g.get("debug").get("sethook").invoke(LuaValue.varargsOf(new LuaValue[]{thread, hook, LuaValue.valueOf("l")}));
+
+        RUNNING.put(thread, onError);
+        resume(thread, LuaValue.NONE);
+        return session;
+    }
+
+    /** Advances a paused session to its next line (or to completion, if none remains). No-op if it isn't currently paused. */
+    public static void step(DebugSession session) {
+        Runnable go = session.pendingStep;
+        if (go == null) return;
+        session.pendingStep = null;
+        go.run();
+    }
+
+    public static void cancelDebug(DebugSession session) {
+        RUNNING.remove(session.thread);
+    }
+
+    /**
+     * Name/value pairs for every local variable in scope at a session's current pause point
+     * (innermost real Lua frame -- the hook function itself is a Java VarArgFunction, not an
+     * interpreted closure, so it shouldn't occupy a debug-info level of its own; UNVERIFIED live,
+     * see TODO.md if this comes back empty or wrong when it should have real locals). Empty if the
+     * session isn't currently paused.
+     */
+    public static List<String[]> debugLocals(DebugSession session) {
+        List<String[]> out = new ArrayList<>();
+        if (!session.isPaused()) return out;
+        LuaValue getlocal = globals().get("debug").get("getlocal");
+        for (int n = 1; n <= 200; n++) {
+            Varargs result = getlocal.invoke(LuaValue.varargsOf(new LuaValue[]{session.thread, LuaValue.valueOf(1), LuaValue.valueOf(n)}));
+            if (result.arg1().isnil()) break;
+            out.add(new String[]{result.arg1().tojstring(), result.arg(2).tojstring()});
+        }
+        return out;
+    }
+
+    /** Name/value pairs for every current global -- includes the whole bound API table/function set, not just user data, matching "including global variables and functions" as asked. */
+    public static List<String[]> debugGlobals() {
+        List<String[]> out = new ArrayList<>();
+        Varargs entry = globals().next(LuaValue.NIL);
+        while (!entry.arg1().isnil()) {
+            LuaValue key = entry.arg1();
+            out.add(new String[]{key.tojstring(), globals().get(key).tojstring()});
+            entry = globals().next(key);
+        }
+        return out;
     }
 
     private static Globals globals() {
@@ -290,6 +439,12 @@ public final class ScriptEngine {
                 return found == null ? LuaValue.NIL : entityHandle(found);
             }
         });
+        globals.set("queryBlock", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                return queryBlock(regexArg(args.arg(1)), distArg(args.arg(2)), posArg(args.arg(3)));
+            }
+        });
 
         globals.set("swapItems", new TwoArgFunction() {
             @Override
@@ -407,6 +562,8 @@ public final class ScriptEngine {
         globals.set("MacroManager", buildMacroManagerTable(runMacro));
         globals.set("WheelManager", buildWheelManagerTable());
         globals.set("EventManager", buildEventManagerTable());
+        globals.set("UserPromptManager", buildUserPromptManagerTable());
+        globals.set("HudManager", buildHudManagerTable());
     }
 
     // ------------------------------------------------------------------ tables
@@ -414,6 +571,7 @@ public final class ScriptEngine {
     private static LuaTable buildPlayerTable(LuaValue runScript) {
         LuaTable table = new LuaTable();
         table.set("executeScript", runScript);
+        table.set("keybinds", buildKeybindsTable());
         LuaTable meta = new LuaTable();
         meta.set(LuaValue.INDEX, new TwoArgFunction() {
             @Override
@@ -427,11 +585,43 @@ public final class ScriptEngine {
                     case "saturation" -> LuaValue.valueOf(player.getFoodData().getSaturationLevel());
                     case "freeInventorySlots" -> LuaValue.valueOf(freeInventorySlots(player.getInventory()));
                     case "gameMode" -> LuaValue.valueOf(Minecraft.getInstance().gameMode.getPlayerMode().getName());
+                    case "idleTicks" -> LuaValue.valueOf(ActivityTracker.ticksSinceInput());
+                    case "ticksSinceMoved" -> LuaValue.valueOf(ActivityTracker.ticksSincePlayerMoved());
                     default -> LuaValue.NIL;
                 };
             }
         });
         table.setmetatable(meta);
+        return table;
+    }
+
+    /** PLAYER.keybinds -- activate/deactivate/list/search ANY registered keybind by name, not just this mod's own. See KeybindControl for why activate() has to re-assert every tick rather than set-and-forget. */
+    private static LuaTable buildKeybindsTable() {
+        LuaTable table = new LuaTable();
+        table.set("activate", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue name) {
+                return LuaValue.valueOf(KeybindControl.activate(name.checkjstring()));
+            }
+        });
+        table.set("deactivate", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue name) {
+                return LuaValue.valueOf(KeybindControl.deactivate(name.checkjstring()));
+            }
+        });
+        table.set("get", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                return stringArray(KeybindControl.names());
+            }
+        });
+        table.set("query", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue regex) {
+                return stringArray(KeybindControl.query(regex.optjstring(".*")));
+            }
+        });
         return table;
     }
 
@@ -528,7 +718,7 @@ public final class ScriptEngine {
             public LuaValue call() {
                 Minecraft.getInstance().execute(() -> {
                     Minecraft mc = Minecraft.getInstance();
-                    if (mc.screen instanceof ArdorWheelScreen) mc.setScreen(null);
+                    if (mc.gui.screen() instanceof ArdorWheelScreen) mc.gui.setScreen(null);
                 });
                 return LuaValue.NONE;
             }
@@ -582,7 +772,7 @@ public final class ScriptEngine {
                 boolean intervalOmitted = args.arg(2).isfunction();
                 int interval = intervalOmitted ? DEFAULT_EVENT_INTERVAL_TICKS : args.arg(2).checkint();
                 LuaValue predicate = intervalOmitted ? args.arg(2) : args.arg(3);
-                ScriptEventRegistry.setEvent(name, interval, () -> callPredicate(predicate));
+                ScriptEventRegistry.setEvent(name, interval, () -> callPredicate(predicate, name));
                 return LuaValue.NONE;
             }
         });
@@ -602,7 +792,7 @@ public final class ScriptEngine {
             @Override
             public Varargs invoke(Varargs args) {
                 LuaValue fn = args.arg(args.narg()); // last arg, so evt:subscribe(f) and evt.subscribe(f) both work
-                return LuaValue.valueOf(ScriptEventRegistry.subscribe(name, () -> callCallback(fn), fn));
+                return LuaValue.valueOf(ScriptEventRegistry.subscribe(name, () -> callCallback(fn, name), fn));
             }
         });
         handle.set("unsubscribe", new VarArgFunction() {
@@ -620,25 +810,191 @@ public final class ScriptEngine {
      * like pause() called from one throws "cannot yield" rather than suspending, caught here so a
      * misused callback can't take down the tick loop or the other events sharing it.
      */
-    private static boolean callPredicate(LuaValue predicate) {
+    private static boolean callPredicate(LuaValue predicate, String eventName) {
         try {
-            return predicate.call().toboolean();
+            boolean result = predicate.call().toboolean();
+            StatusIndicator.clearOnce("event-predicate:" + eventName);
+            return result;
         } catch (LuaError e) {
             System.err.println("[ardor] script event predicate failed: " + e.getMessage());
+            StatusIndicator.showOnce("event-predicate:" + eventName, "Script event '" + eventName + "' predicate failed: " + e.getMessage());
             return false;
         }
     }
 
-    private static void callCallback(LuaValue fn) {
+    private static void callCallback(LuaValue fn, String eventName) {
         Runnable call = () -> {
             try {
                 fn.call();
             } catch (LuaError e) {
                 System.err.println("[ardor] script event callback failed: " + e.getMessage());
+                StatusIndicator.showOnce("event-callback:" + eventName, "Script event '" + eventName + "' subscriber failed: " + e.getMessage());
             }
         };
         Minecraft mc = Minecraft.getInstance();
         if (mc.isSameThread()) call.run(); else mc.execute(call);
+    }
+
+    // ------------------------------------------------------------------ user prompts
+
+    /**
+     * Blocking prompts to the PLAYER (not the LLM) -- text input, any-number checkboxes, or a
+     * single multiple-choice pick. Each opens a screen and suspends the calling script exactly
+     * like pause()/home() until Submit or Cancel resolves it; Cancel (or closing the screen) is
+     * Lua nil, distinguishable from a real answer.
+     */
+    private static LuaTable buildUserPromptManagerTable() {
+        LuaTable table = new LuaTable();
+        table.set("textInput", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue question) {
+                String q = question.checkjstring();
+                return suspend(done -> Minecraft.getInstance().execute(() ->
+                        Minecraft.getInstance().gui.setScreen(new TextInputPromptScreen(q, result ->
+                                done.accept(result == null ? LuaValue.NIL : LuaValue.valueOf(result))))));
+            }
+        });
+        table.set("checkbox", new TwoArgFunction() {
+            @Override
+            public LuaValue call(LuaValue question, LuaValue optionsTable) {
+                String q = question.checkjstring();
+                List<String> options = luaStringList(optionsTable);
+                return suspend(done -> Minecraft.getInstance().execute(() ->
+                        Minecraft.getInstance().gui.setScreen(new CheckBoxPromptScreen(q, options, result ->
+                                done.accept(result == null ? LuaValue.NIL : stringArray(result))))));
+            }
+        });
+        table.set("multipleChoice", new TwoArgFunction() {
+            @Override
+            public LuaValue call(LuaValue question, LuaValue optionsTable) {
+                String q = question.checkjstring();
+                List<String> options = luaStringList(optionsTable);
+                return suspend(done -> Minecraft.getInstance().execute(() ->
+                        Minecraft.getInstance().gui.setScreen(new MultipleChoicePromptScreen(q, options, result ->
+                                done.accept(result == null ? LuaValue.NIL : LuaValue.valueOf(result))))));
+            }
+        });
+        return table;
+    }
+
+    private static List<String> luaStringList(LuaValue table) {
+        List<String> values = new ArrayList<>();
+        LuaTable t = table.checktable();
+        for (int i = 1; i <= t.length(); i++) values.add(t.get(i).tojstring());
+        return values;
+    }
+
+    // ------------------------------------------------------------------ hud
+
+    /**
+     * The four server-driven vanilla HUD elements (action bar, boss bars, scoreboard sidebar,
+     * title/subtitle) -- see client/HudManager.java. Reads return nil when the element isn't
+     * currently showing. Only the action bar and title can be WRITTEN; faking a scoreboard or boss
+     * bar client-side is out of scope (see TODO.md).
+     */
+    private static LuaTable buildHudManagerTable() {
+        LuaTable table = new LuaTable();
+        table.set("actionBar", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                String text = HudManager.actionBarText();
+                if (text == null) return LuaValue.NIL;
+                LuaTable t = new LuaTable();
+                t.set("text", text);
+                t.set("ticksRemaining", HudManager.actionBarTicksRemaining());
+                return t;
+            }
+        });
+        table.set("bossBars", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                LuaTable bars = new LuaTable();
+                List<HudManager.BossBar> list = HudManager.bossBars();
+                for (int i = 0; i < list.size(); i++) {
+                    HudManager.BossBar bar = list.get(i);
+                    LuaTable t = new LuaTable();
+                    t.set("name", bar.name());
+                    t.set("progress", bar.progress());
+                    t.set("color", bar.color());
+                    bars.set(i + 1, t);
+                }
+                return bars;
+            }
+        });
+        table.set("scoreboard", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                String title = HudManager.scoreboardTitle();
+                if (title == null) return LuaValue.NIL;
+                LuaTable entries = new LuaTable();
+                List<HudManager.ScoreEntry> list = HudManager.scoreboardEntries();
+                for (int i = 0; i < list.size(); i++) {
+                    LuaTable t = new LuaTable();
+                    t.set("name", list.get(i).name());
+                    t.set("score", list.get(i).score());
+                    entries.set(i + 1, t);
+                }
+                LuaTable result = new LuaTable();
+                result.set("title", title);
+                result.set("entries", entries);
+                return result;
+            }
+        });
+        table.set("title", new ZeroArgFunction() {
+            @Override
+            public LuaValue call() {
+                String title = HudManager.titleText();
+                String subtitle = HudManager.subtitleText();
+                if (title == null && subtitle == null) return LuaValue.NIL;
+                LuaTable t = new LuaTable();
+                t.set("title", title == null ? "" : title);
+                t.set("subtitle", subtitle == null ? "" : subtitle);
+                return t;
+            }
+        });
+        table.set("setActionBarText", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue text) {
+                HudManager.setActionBarText(text.checkjstring());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setTitle", new TwoArgFunction() {
+            @Override
+            public LuaValue call(LuaValue title, LuaValue subtitle) {
+                HudManager.setTitle(title.checkjstring(), subtitle.optjstring(""));
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setActionBarVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setActionBarVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setBossBarVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setBossBarVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setScoreboardVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setScoreboardVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        table.set("setTitleVisible", new OneArgFunction() {
+            @Override
+            public LuaValue call(LuaValue visible) {
+                HudManager.setTitleVisible(visible.toboolean());
+                return LuaValue.NONE;
+            }
+        });
+        return table;
     }
 
     // ------------------------------------------------------------------ peers
@@ -793,6 +1149,33 @@ public final class ScriptEngine {
         return best;
     }
 
+    /**
+     * Nearest block matching regex against its registry id (e.g. "diamond_ore|deepslate_diamond"),
+     * within dist blocks of pos -- {pos, block} or nil. Reuses BlockIndex (the chunk-load/unload-
+     * maintained spatial index GameObjectSearch/world.nearestBlocks already build on) rather than a
+     * brute-force cube scan, so a script can do `local b = queryBlock("diamond_ore", 32); if b then
+     * goto(b.pos.x, b.pos.y, b.pos.z) end` without paying for the search itself.
+     */
+    private static Varargs queryBlock(Pattern regex, int dist, BlockPos center) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) return LuaValue.NIL;
+        Set<Block> matchingTypes = new HashSet<>();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            Identifier id = BuiltInRegistries.BLOCK.getKey(block);
+            if (id != null && regex.matcher(id.toString()).find()) matchingTypes.add(block);
+        }
+        if (matchingTypes.isEmpty()) return LuaValue.NIL;
+        int radius = dist < 0 ? 64 : dist;
+        List<BlockPos> nearest = BlockIndex.nearest(matchingTypes, center, radius, level, 1);
+        if (nearest.isEmpty()) return LuaValue.NIL;
+        BlockPos pos = nearest.get(0);
+        Identifier id = BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock());
+        LuaTable entry = new LuaTable();
+        entry.set("pos", posTable(pos));
+        entry.set("block", id != null ? id.toString() : "unknown");
+        return entry;
+    }
+
     /** Entity handles cross into Lua as {id, type, pos} rather than a raw Java Entity -- an entity can be unloaded or removed between ticks, so kill() re-resolves by id at use time. */
     private static LuaTable entityHandle(Entity entity) {
         LuaTable handle = new LuaTable();
@@ -900,17 +1283,38 @@ public final class ScriptEngine {
     // ------------------------------------------------------------------ cooldowns
 
     private static final Map<String, Integer> COOLDOWNS = new LinkedHashMap<>();
+    private static final Map<String, Integer> COOLDOWN_TOTALS = new LinkedHashMap<>();
     private static final Set<String> COOLDOWN_BARS = new HashSet<>();
     private static boolean cooldownTickerRegistered;
     private static int cooldownAutoId;
 
-    /** Named countdown in client ticks. showBar reuses StatusIndicator once a second rather than a real HUD element -- see TODO.md. Returns the label (an auto-generated one if blank) so cooldownRemaining() has something to ask about. */
+    public record CooldownBar(String label, int remaining, int total) {}
+
+    /** Named countdown in client ticks. showBar draws the label + depleting HUD bar in the top right (see CooldownHud). Returns the label (an auto-generated one if blank) so cooldownRemaining() has something to ask about. */
     private static String startCooldown(int ticks, boolean showBar, String label) {
         String key = label.isBlank() ? "cooldown_" + (++cooldownAutoId) : label;
-        COOLDOWNS.put(key, Math.max(ticks, 0));
-        if (showBar) COOLDOWN_BARS.add(key); else COOLDOWN_BARS.remove(key);
+        int clamped = Math.max(ticks, 0);
+        COOLDOWNS.put(key, clamped);
+        if (showBar) {
+            COOLDOWN_BARS.add(key);
+            COOLDOWN_TOTALS.put(key, Math.max(clamped, 1));
+        } else {
+            COOLDOWN_BARS.remove(key);
+            COOLDOWN_TOTALS.remove(key);
+        }
         ensureCooldownTicker();
         return key;
+    }
+
+    /** Bar-enabled cooldowns currently counting down, in the order they were started -- backs CooldownHud's render loop. */
+    public static List<CooldownBar> activeCooldownBars() {
+        List<CooldownBar> bars = new ArrayList<>();
+        for (var entry : COOLDOWNS.entrySet()) {
+            if (COOLDOWN_BARS.contains(entry.getKey())) {
+                bars.add(new CooldownBar(entry.getKey(), entry.getValue(), COOLDOWN_TOTALS.getOrDefault(entry.getKey(), entry.getValue())));
+            }
+        }
+        return bars;
     }
 
     private static void ensureCooldownTicker() {
@@ -932,14 +1336,12 @@ public final class ScriptEngine {
             var entry = entries.next();
             int remaining = entry.getValue() - 1;
             if (remaining <= 0) {
-                if (COOLDOWN_BARS.remove(entry.getKey())) StatusIndicator.show(entry.getKey() + ": ready");
+                COOLDOWN_BARS.remove(entry.getKey());
+                COOLDOWN_TOTALS.remove(entry.getKey());
                 entries.remove();
                 continue;
             }
             entry.setValue(remaining);
-            if (remaining % 20 == 0 && COOLDOWN_BARS.contains(entry.getKey())) {
-                StatusIndicator.show(entry.getKey() + ": " + (remaining / 20) + "s remaining");
-            }
         }
     }
 
@@ -974,6 +1376,7 @@ public final class ScriptEngine {
                 .thenAccept(response -> ResponseHandler.handle(response, config.llmMode))
                 .exceptionally(err -> {
                     System.err.println("[ardor] script commandLLM failed: " + err.getMessage());
+                    Minecraft.getInstance().execute(() -> StatusIndicator.show("commandLLM failed: " + err.getMessage()));
                     return null;
                 });
     }
@@ -1070,7 +1473,7 @@ public final class ScriptEngine {
         try {
             int code = InputConstants.getKey("key.keyboard." + name).getValue();
             return code != InputConstants.UNKNOWN.getValue()
-                    && InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), code);
+                    && InputConstants.isKeyDown(code);
         } catch (RuntimeException e) {
             return false;
         }
@@ -1116,6 +1519,7 @@ public final class ScriptEngine {
                 .thenAccept(tasks -> Minecraft.getInstance().execute(() -> TaskRunner.shared().interrupt(tasks, NO_OP_LISTENER)))
                 .exceptionally(err -> {
                     System.err.println("[ardor] script ask() failed: " + err.getMessage());
+                    Minecraft.getInstance().execute(() -> StatusIndicator.show("ask() failed: " + err.getMessage()));
                     return null;
                 });
     }

@@ -1,0 +1,15 @@
+{
+  "name": "ardor-bedrock-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "manager": "node manager.js"
+  },
+  "dependencies": {
+    "bedrock-protocol": "^3.57.0",
+    "ws": "^8.21.3"
+  }
+}

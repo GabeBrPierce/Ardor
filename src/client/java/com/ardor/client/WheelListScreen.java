@@ -19,11 +19,11 @@ import java.util.List;
  */
 public final class WheelListScreen extends Screen {
 
-    private static final int ROW_TOP = 40;
     private static final int ROW_H = 20;
 
     private EditBox nameBox;
     private List<String> wheels = List.of();
+    private int rowTop = 40;
 
     public WheelListScreen() {
         super(Component.literal("Wheels"));
@@ -49,20 +49,21 @@ public final class WheelListScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
 
+        rowTop = Math.max(40, flow.bottom() + 4);
         wheels = ScriptWheelStore.list();
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (String name : wheels) {
             addRenderableWidget(Button.builder(Component.literal("Show"), b -> {
-                Minecraft.getInstance().setScreen(null);
+                Minecraft.getInstance().gui.setScreen(null);
                 ScriptWheelKey.open(name);
-            }).bounds(390, y, 55, ROW_H - 2).build());
-            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new WheelEditScreen(name)))
-                    .bounds(450, y, 50, ROW_H - 2).build());
+            }).bounds(width - 185, y, 55, ROW_H - 2).build());
+            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().gui.setScreen(new WheelEditScreen(name)))
+                    .bounds(width - 125, y, 50, ROW_H - 2).build());
             addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
                 ScriptWheelStore.delete(name);
                 rebuildAllWidgets();
-            }).bounds(505, y, 60, ROW_H - 2).build());
+            }).bounds(width - 70, y, 60, ROW_H - 2).build());
             y += ROW_H;
         }
     }
@@ -71,7 +72,7 @@ public final class WheelListScreen extends Screen {
         String name = nameBox.getValue().trim();
         if (name.isEmpty()) return;
         ScriptWheelStore.save(name, new java.util.ArrayList<>());
-        Minecraft.getInstance().setScreen(new WheelEditScreen(name));
+        Minecraft.getInstance().gui.setScreen(new WheelEditScreen(name));
     }
 
     @Override
@@ -79,13 +80,13 @@ public final class WheelListScreen extends Screen {
         g.fill(0, 0, width, height, 0xC0101010);
         g.text(font, getTitle().getString(), 10, 1, 0xFFFFFFFF);
 
-        int y = ROW_TOP;
+        int y = rowTop;
         for (String name : wheels) {
             g.text(font, name, 10, y + 5, 0xFFFFFFFF);
             y += ROW_H;
         }
         if (wheels.isEmpty()) {
-            g.text(font, "No wheels yet -- type a name and press New.", 10, ROW_TOP, 0xFF808080);
+            g.text(font, "No wheels yet -- type a name and press New.", 10, rowTop, 0xFF808080);
         }
 
         super.extractRenderState(g, mouseX, mouseY, partialTick);
