@@ -15,6 +15,7 @@ import com.ardor.config.ArdorConfig;
 import com.ardor.container.CacheSearch;
 import com.ardor.container.CommandCooldowns;
 import com.ardor.event.ScriptEventRegistry;
+import com.ardor.game.BlockIndex;
 import com.ardor.game.BreakAreaController;
 import com.ardor.game.GameActionController;
 import com.ardor.game.HotbarUtil;
@@ -45,6 +46,7 @@ import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.AABB;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaError;
@@ -437,6 +439,12 @@ public final class ScriptEngine {
                 return found == null ? LuaValue.NIL : entityHandle(found);
             }
         });
+        globals.set("queryBlock", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                return queryBlock(regexArg(args.arg(1)), distArg(args.arg(2)), posArg(args.arg(3)));
+            }
+        });
 
         globals.set("swapItems", new TwoArgFunction() {
             @Override
@@ -710,7 +718,7 @@ public final class ScriptEngine {
             public LuaValue call() {
                 Minecraft.getInstance().execute(() -> {
                     Minecraft mc = Minecraft.getInstance();
-                    if (mc.screen instanceof ArdorWheelScreen) mc.setScreen(null);
+                    if (mc.gui.screen() instanceof ArdorWheelScreen) mc.gui.setScreen(null);
                 });
                 return LuaValue.NONE;
             }
@@ -842,7 +850,7 @@ public final class ScriptEngine {
             public LuaValue call(LuaValue question) {
                 String q = question.checkjstring();
                 return suspend(done -> Minecraft.getInstance().execute(() ->
-                        Minecraft.getInstance().setScreen(new TextInputPromptScreen(q, result ->
+                        Minecraft.getInstance().gui.setScreen(new TextInputPromptScreen(q, result ->
                                 done.accept(result == null ? LuaValue.NIL : LuaValue.valueOf(result))))));
             }
         });
@@ -852,7 +860,7 @@ public final class ScriptEngine {
                 String q = question.checkjstring();
                 List<String> options = luaStringList(optionsTable);
                 return suspend(done -> Minecraft.getInstance().execute(() ->
-                        Minecraft.getInstance().setScreen(new CheckBoxPromptScreen(q, options, result ->
+                        Minecraft.getInstance().gui.setScreen(new CheckBoxPromptScreen(q, options, result ->
                                 done.accept(result == null ? LuaValue.NIL : stringArray(result))))));
             }
         });
@@ -862,7 +870,7 @@ public final class ScriptEngine {
                 String q = question.checkjstring();
                 List<String> options = luaStringList(optionsTable);
                 return suspend(done -> Minecraft.getInstance().execute(() ->
-                        Minecraft.getInstance().setScreen(new MultipleChoicePromptScreen(q, options, result ->
+                        Minecraft.getInstance().gui.setScreen(new MultipleChoicePromptScreen(q, options, result ->
                                 done.accept(result == null ? LuaValue.NIL : LuaValue.valueOf(result))))));
             }
         });
@@ -1139,6 +1147,33 @@ public final class ScriptEngine {
             }
         }
         return best;
+    }
+
+    /**
+     * Nearest block matching regex against its registry id (e.g. "diamond_ore|deepslate_diamond"),
+     * within dist blocks of pos -- {pos, block} or nil. Reuses BlockIndex (the chunk-load/unload-
+     * maintained spatial index GameObjectSearch/world.nearestBlocks already build on) rather than a
+     * brute-force cube scan, so a script can do `local b = queryBlock("diamond_ore", 32); if b then
+     * goto(b.pos.x, b.pos.y, b.pos.z) end` without paying for the search itself.
+     */
+    private static Varargs queryBlock(Pattern regex, int dist, BlockPos center) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) return LuaValue.NIL;
+        Set<Block> matchingTypes = new HashSet<>();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            Identifier id = BuiltInRegistries.BLOCK.getKey(block);
+            if (id != null && regex.matcher(id.toString()).find()) matchingTypes.add(block);
+        }
+        if (matchingTypes.isEmpty()) return LuaValue.NIL;
+        int radius = dist < 0 ? 64 : dist;
+        List<BlockPos> nearest = BlockIndex.nearest(matchingTypes, center, radius, level, 1);
+        if (nearest.isEmpty()) return LuaValue.NIL;
+        BlockPos pos = nearest.get(0);
+        Identifier id = BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock());
+        LuaTable entry = new LuaTable();
+        entry.set("pos", posTable(pos));
+        entry.set("block", id != null ? id.toString() : "unknown");
+        return entry;
     }
 
     /** Entity handles cross into Lua as {id, type, pos} rather than a raw Java Entity -- an entity can be unloaded or removed between ticks, so kill() re-resolves by id at use time. */
@@ -1438,7 +1473,7 @@ public final class ScriptEngine {
         try {
             int code = InputConstants.getKey("key.keyboard." + name).getValue();
             return code != InputConstants.UNKNOWN.getValue()
-                    && InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), code);
+                    && InputConstants.isKeyDown(code);
         } catch (RuntimeException e) {
             return false;
         }

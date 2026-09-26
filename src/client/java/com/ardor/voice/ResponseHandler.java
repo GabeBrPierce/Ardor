@@ -2,12 +2,15 @@ package com.ardor.voice;
 
 import com.google.gson.JsonObject;
 import com.ardor.audio.AudioPlayer;
+import com.ardor.bridge.BridgeServer;
 import com.ardor.game.ActionDispatcher;
 import com.ardor.history.ActionHistory;
 import com.ardor.history.ChatHistory;
 import com.ardor.ir.AsciiActionCodec;
 import com.ardor.planner.PlannedTask;
 import com.ardor.planner.TaskRunner;
+import com.ardor.script.ScriptEngine;
+import com.ardor.script.ScriptStore;
 import com.ardor.tts.PiperSpeaker;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
@@ -15,9 +18,14 @@ import net.minecraft.client.Minecraft;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Response parsing for both VoicePipeline (voice-triggered) and ChatListener
@@ -86,10 +94,14 @@ public final class ResponseHandler {
 
     /** Verbatim copy of training/build_sft_dataset.py's SYSTEM_PROMPT -- keep in sync by hand if that changes. */
     public static final String SINGLE_COMMAND_SYSTEM_PROMPT =
-            "You control a Minecraft bot. Reply with exactly one command in this "
-            + "compact ASCII grammar, nothing else: "
+            "You control a Minecraft bot. For a one-off request, reply with exactly one "
+            + "command in this compact ASCII grammar, nothing else: "
             + "go/flw/mine/plc/crf/smt/eq/atk/drp/use/say/stop, "
-            + "e.g. 'go @12,64,-8 range:2', 'mine diamond_ore n:3', 'atk @e[type=zombie,limit=1,sort=nearest] until:dead'.";
+            + "e.g. 'go @12,64,-8 range:2', 'mine diamond_ore n:3', 'atk @e[type=zombie,limit=1,sort=nearest] until:dead'. "
+            + "For a request asking you to build a reusable or repeatable script/routine "
+            + "(e.g. 'make me a routine that...', 'write a script that...', 'build me an "
+            + "automation that...'), reply with nothing but a Lua script in a fenced code "
+            + "block, nothing else: ```lua\n...\n```.";
 
     private ResponseHandler() {}
 
@@ -110,7 +122,85 @@ public final class ResponseHandler {
 
     private static void handleSingleCommand(String command) {
         if (command.isEmpty()) return;
-        dispatchAction(command);
+        String lua = extractLuaScript(command);
+        if (lua != null) {
+            runGeneratedScript(lua);
+        } else {
+            dispatchAction(command);
+        }
+    }
+
+    /**
+     * Detects the second of the two shapes SINGLE_COMMAND_SYSTEM_PROMPT teaches the fine-tuned
+     * local model to produce -- a fenced ```lua block for a "make me a reusable script" style
+     * request, as opposed to a bare ascii command -- and returns the script body, or null if
+     * `response` isn't one. Tolerates a missing closing fence (a truncated generation still starts
+     * unambiguously with the opening fence) so a script cut short by max-new-tokens is still
+     * recognized as Lua rather than silently falling through to dispatchAction and failing as a
+     * garbled ascii command.
+     */
+    private static final Pattern LUA_FENCE = Pattern.compile("```lua\\s*\\n(.*?)```", Pattern.DOTALL);
+
+    private static String extractLuaScript(String response) {
+        Matcher m = LUA_FENCE.matcher(response);
+        if (m.find()) return m.group(1).strip();
+        if (response.startsWith("```lua")) {
+            String rest = response.substring("```lua".length()).stripLeading();
+            return (rest.endsWith("```") ? rest.substring(0, rest.length() - 3) : rest).strip();
+        }
+        return null;
+    }
+
+    /**
+     * Saves a freshly LLM-generated script (named from its own leading comment, if any, plus a
+     * timestamp for uniqueness so it never silently clobbers an existing saved script of the same
+     * name) and runs it immediately -- same end state as picking "make me a script that..." and
+     * having it show up ready to re-run later from the Scripts menu, instead of a one-shot action.
+     */
+    private static void runGeneratedScript(String source) {
+        String name = nameForScript(source);
+        try {
+            ScriptStore.save(name, source);
+        } catch (RuntimeException e) {
+            System.err.println("[ardor] failed to save generated script: " + e.getMessage());
+            sayAloud("I wrote a script but couldn't save it: " + e.getMessage());
+            return;
+        }
+        ActionHistory.log(scriptSourceAsAction(name), "llm");
+        sayAloud("Saved a new script called \"" + name + "\" and running it now.");
+        ScriptEngine.run(source, name, error -> {
+            System.err.println("[ardor] generated script '" + name + "' failed: " + error);
+            sayAloud("The script \"" + name + "\" hit an error: " + error);
+        });
+    }
+
+    private static JsonObject scriptSourceAsAction(String name) {
+        JsonObject action = new JsonObject();
+        action.addProperty("action", "runScript");
+        action.addProperty("name", name);
+        return action;
+    }
+
+    private static final Pattern LEADING_COMMENT = Pattern.compile("^--+\\s*(.+)$");
+    private static final DateTimeFormatter NAME_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+
+    /** e.g. a script whose first line is "-- keeps mining diamond ore..." becomes "keeps-mining-diamond-ore-20260924-153045". Falls back to a generic "routine-<timestamp>" if the script has no leading comment. */
+    private static String nameForScript(String source) {
+        String slug = "routine";
+        for (String line : source.lines().toList()) {
+            String trimmed = line.strip();
+            if (trimmed.isEmpty()) continue;
+            Matcher m = LEADING_COMMENT.matcher(trimmed);
+            if (m.matches()) slug = slugify(m.group(1));
+            break; // only the script's very first non-blank line counts as its title comment
+        }
+        return slug + "-" + LocalDateTime.now().format(NAME_TIMESTAMP);
+    }
+
+    private static String slugify(String text) {
+        String slug = text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        if (slug.isEmpty()) return "routine";
+        return slug.length() > 40 ? slug.substring(0, 40).replaceAll("-+$", "") : slug;
     }
 
     /**
@@ -166,6 +256,14 @@ public final class ResponseHandler {
     public static void sayAloud(String text) {
         ChatHistory.logBotResponse(text);
         speak(text);
+        pushArdorMessageEvent(text);
+    }
+
+    /** Fire-and-forget push to the companion (a no-op if none is connected) so its narration tab can speak this in Ardor's own configured voice (GLaDOS by default) -- separate event id from chat.message since this is never subject to per-username voice mapping. */
+    private static void pushArdorMessageEvent(String text) {
+        JsonObject extra = new JsonObject();
+        extra.addProperty("text", text);
+        BridgeServer.pushEvent("ardor.message", extra);
     }
 
     private static void speak(String text) {

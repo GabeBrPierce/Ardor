@@ -235,13 +235,27 @@ final class ScriptDocsContent {
                 Returns an array of region names containing pos (defaults to the player's position), \
                 innermost first. Regions are the same named zones configured in the Regions menu.
 
+                > queryBlock(regex, dist, pos)
+
+                Finds the single NEAREST block whose registry id matches regex (e.g. "diamond_ore" also \
+                matches "deepslate_diamond_ore" since regex is a substring-style match, not exact), \
+                within dist blocks of pos (both optional -- dist defaults to unlimited, pos to the \
+                player's position). Returns {pos, block} or nil if nothing matches in range.
+
+                > local ore = queryBlock("diamond_ore", 32)
+                > if ore then
+                >     breakBlocksWithin(ore.pos, ore.pos)  -- walks there and breaks just that block
+                > else
+                >     echo("no diamond ore nearby")
+                > end
+
                 > breakBlocksWithin(pointA, pointB)
 
-                pointA/pointB are {x=, y=, z=} tables describing opposite corners of a box. Starts \
-                breaking every block in that box (same sweep Break Blocks Within already uses) and \
-                returns true if there's roughly enough free inventory/nearby container space for what's \
-                about to be mined, false if there probably isn't (a rough capacity check, not a \
-                guarantee)."""),
+                pointA/pointB are {x=, y=, z=} tables describing opposite corners of a box (the same \
+                point twice breaks just that one block). Starts breaking every block in that box (same \
+                sweep Break Blocks Within already uses) and returns true if there's roughly enough free \
+                inventory/nearby container space for what's about to be mined, false if there probably \
+                isn't (a rough capacity check, not a guarantee)."""),
 
         new Section("chat", "Communication", """
                 > say(text)
@@ -634,6 +648,7 @@ final class ScriptDocsContent {
                 > PLAYER.ticksSinceMoved  -- ticks since the player's position last changed
                 > promptLLM(text, hierarchyLevel)
                 > putInHotbar(slot, hotbarSlot)
+                > queryBlock(regex, dist, pos)  -- nearest block matching regex: {pos, block} or nil
                 > queryEntity(regex, dist, pos)
                 > queryItemInInventory(itemRegex, dist, pos)
                 > queryItemInStorage(itemRegex, dist, pos)

@@ -2,6 +2,7 @@ package com.ardor.client;
 
 import com.ardor.game.ActionDispatcher;
 import com.ardor.game.BreakAreaController;
+import com.ardor.game.BuildAreaController;
 import com.ardor.game.KillAllController;
 import com.ardor.planner.TaskOrchestrator;
 import com.ardor.planner.TaskRunner;
@@ -42,6 +43,7 @@ public final class PanicStop {
         TaskOrchestrator.stop();
         ScriptEngine.cancel();
         BreakAreaController.cancel();
+        BuildAreaController.cancel();
         KillAllController.stop();
         StatusIndicator.show("STOPPED (panic stop)");
     }

@@ -50,25 +50,28 @@ public final class ArdorWheelScreen extends Screen {
     public static ArdorWheelScreen mainWheel() {
         return new ArdorWheelScreen(List.of(
                 new WheelOption("Single Selection", SingleSelectionMode::toggle),
-                new WheelOption("Area Selection", () -> Minecraft.getInstance().setScreen(new ArdorWheelScreen(List.of(
+                new WheelOption("Area Selection", () -> Minecraft.getInstance().gui.setScreen(new ArdorWheelScreen(List.of(
                         new WheelOption("Radius", AreaSelectionMode::startRadius),
                         new WheelOption("Corners", AreaSelectionMode::startCorners)
                 )))),
                 new WheelOption("Pick Block", () -> Minecraft.getInstance().pickBlockOrEntity()),
-                new WheelOption("Menu", () -> Minecraft.getInstance().setScreen(new ArdorConfigScreen(null)))
+                new WheelOption("Menu", () -> Minecraft.getInstance().gui.setScreen(new ArdorConfigScreen(null)))
         ));
     }
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
-        if (event.button() == 2) {
+        // 2 = middle (the original hold-middle/move/release gesture, see PickWheelKey). 1 = left --
+        // Sims mode opens this wheel with a plain right-click instead (no hold), so confirming a
+        // wedge needs its own plain left-click rather than the hold gesture's release.
+        if (event.button() == 2 || event.button() == 1) {
             Integer index = hoveredIndex(event.x(), event.y());
             if (index != null) options.get(index).action().run();
             // An action may have already opened a different screen (e.g. Area Selection opening
             // the Radius/Corners wheel, or a follow-up wheel) -- only close if this wheel is still
             // the one showing, so that chain isn't immediately clobbered.
-            if (Minecraft.getInstance().screen == this) {
-                Minecraft.getInstance().setScreen(null);
+            if (Minecraft.getInstance().gui.screen() == this) {
+                Minecraft.getInstance().gui.setScreen(null);
             }
             return true;
         }

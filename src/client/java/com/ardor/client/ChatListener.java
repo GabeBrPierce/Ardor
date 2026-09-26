@@ -1,9 +1,11 @@
 package com.ardor.client;
 
+import com.ardor.bridge.BridgeServer;
 import com.ardor.config.ArdorConfig;
 import com.ardor.history.ChatHistory;
 import com.ardor.llm.ChatCompletionClient;
 import com.ardor.voice.ResponseHandler;
+import com.google.gson.JsonObject;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.minecraft.client.Minecraft;
 
@@ -41,12 +43,21 @@ public final class ChatListener {
             boolean trigger = mentioned && cooledDown;
 
             ChatHistory.logChat(senderName, text, trigger);
+            pushChatEvent(senderName, text);
 
             if (trigger) {
                 lastTrigger = Instant.now();
                 respond(senderName, text);
             }
         });
+    }
+
+    /** Fire-and-forget push to the companion (a no-op if none is connected) for narration -- see BridgeServer.pushEvent's own doc. Every real chat message, not just wake-word-triggered ones, since the companion narrates whatever's said regardless of whether Ardor itself responds. */
+    private static void pushChatEvent(String senderName, String text) {
+        JsonObject extra = new JsonObject();
+        extra.addProperty("sender", senderName);
+        extra.addProperty("text", text);
+        BridgeServer.pushEvent("chat.message", extra);
     }
 
     private static void respond(String senderName, String text) {

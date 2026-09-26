@@ -9,7 +9,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -131,7 +131,7 @@ public final class ScriptDocsScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && event.x() >= TOC_LEFT && event.x() <= TOC_LEFT + TOC_WIDTH
+        if (event.button() == InputConstants.MOUSE_BUTTON_LEFT && event.x() >= TOC_LEFT && event.x() <= TOC_LEFT + TOC_WIDTH
                 && event.y() >= CONTENT_TOP) {
             // Integer division truncates toward zero, not floor -- without the y >= CONTENT_TOP guard
             // above, a click just above the TOC (e.g. near the title) would compute row 0 instead of
@@ -185,7 +185,7 @@ public final class ScriptDocsScreen extends Screen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(parent);
+        Minecraft.getInstance().gui.setScreen(parent);
     }
 
     @Override

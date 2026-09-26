@@ -28,7 +28,7 @@ public abstract class MouseActivityMixin {
     }
 
     @Inject(method = "onMove", at = @At("TAIL"))
-    private void ardor$markRealMouseMove(long window, double x, double y, CallbackInfo ci) {
+    private void ardor$markRealMouseMove(long window, double xpos, double ypos, double rawDx, double rawDy, CallbackInfo ci) {
         ActivityTracker.onRawInput();
     }
 }

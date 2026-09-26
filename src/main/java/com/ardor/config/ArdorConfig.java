@@ -127,12 +127,17 @@ public final class ArdorConfig {
     public boolean bridgeEnabled = true;
     public int bridgePort = 24747;
 
+    // "Disable greeting people by default -- it looks suspicious to do it to everyone." Off by
+    // default; SocialGreetingController's crouch/jump/strafe gesture toward every peaceful nearby
+    // player is a giveaway that a client is automated if a real person happens to notice it, so it
+    // shouldn't run unless someone deliberately opts in.
+    public boolean socialGreetingEnabled = false;
+
     // "The Companion button doesn't launch the companion" -- it used to just open a browser tab
     // assuming CompanionDaemon was already running somewhere; it never actually started the
     // process. Blank by default (no sane machine-independent default -- same reasoning
     // llmServerExecutable already documents), same install-your-own-path convention: point this at
-    // Ardor-Companion's Gradle `application` plugin output, e.g.
-    // ...\Ardor-Companion\build\install\ardor-companion\bin\ardor-companion.bat. See CompanionLauncher.
+    // bedrock-bot's manager.js (launched via node), e.g. ...\Ardor\bedrock-bot\manager.js. See CompanionLauncher.
     public String companionLauncherPath = "";
 
     // LAN-only peer transport (see bridge/PeerServer.java, bridge/PeerClient.java) -- lets one

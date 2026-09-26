@@ -1,5 +1,6 @@
 package com.ardor.game;
 
+import com.ardor.bridge.BaritoneNav;
 import com.ardor.client.StatusIndicator;
 import com.ardor.region.RegionManager;
 import com.google.gson.Gson;
@@ -198,8 +199,16 @@ public final class BreakAreaController {
      * instead of leaving a walled-in pit.
      */
     public static List<BlockPos> enumerate(AABB box, Level level) {
+        // box.maxX/Y/Z are the AABB's EXCLUSIVE upper bound (one past the last block, same as
+        // AreaSelectionMode.setAsRegion's own box.maxX - 1 conversion) -- using them directly as
+        // BlockPos.containing input (as this used to) treated them as an INCLUSIVE coordinate
+        // instead, excavating and reserving-stairs-for a phantom extra layer/row/column one block
+        // beyond the real selection on every max face, and misaligning the staircase's assumed top
+        // step from the pit's actual opening by one block. That's what read as "extra random blocks"
+        // and "no stairs" -- the ramp was there, just floating one block off from where anyone
+        // would actually be standing.
         BlockPos min = BlockPos.containing(box.minX, box.minY, box.minZ);
-        BlockPos max = BlockPos.containing(box.maxX, box.maxY, box.maxZ);
+        BlockPos max = BlockPos.containing(box.maxX - 1, box.maxY - 1, box.maxZ - 1);
         Set<BlockPos> reservedFloor = reservedStaircaseFloor(min, max);
 
         // "We're moving very randomly -- I want it to follow [a continuous back-and-forth sweep]."
@@ -401,14 +410,23 @@ public final class BreakAreaController {
      * stone/deepslate -- as acceptable pillaring material alongside dirt, so this ONE walkThenRun
      * call gets both "walk back" and "build a way up out of a deep pit if walking alone can't" for
      * free, reusing Baritone's own path search rather than a hand-rolled staircase builder.
+     *
+     * "We break the block beneath our feet on the way back" -- real bug: Baritone's own
+     * Settings.allowBreak (BaritoneRegionGate syncs it from the CURRENT region, defaulting to
+     * allowed almost everywhere) lets it independently decide to dig through whatever it judges is
+     * in the way of its own path, with no notion of "that block is the reserved staircase floor
+     * enumerate() just went out of its way to leave standing." Explicitly turned off for just this
+     * walk -- allowPlace/pillaring (the actual "build a stairway if stuck" mechanism above) is left
+     * alone, only breaking is disabled -- and restored afterward either way.
      */
     private static void finishRun() {
         BlockPos target = dumpTarget != null ? dumpTarget : returnPos;
         if (target == null) return;
         StatusIndicator.show("Heading back to " + (dumpTarget != null ? "the storage container" : "where this started") + "...");
+        BaritoneNav.setAllowBreak(false);
         PathfindingController.walkThenRun(target, "couldn't path back to " + target + " after breaking the area",
-                () -> StatusIndicator.show("Back."),
-                failReason -> StatusIndicator.show("Finished breaking, but couldn't path back: " + failReason));
+                () -> { BaritoneNav.setAllowBreak(true); StatusIndicator.show("Back."); },
+                failReason -> { BaritoneNav.setAllowBreak(true); StatusIndicator.show("Finished breaking, but couldn't path back: " + failReason); });
     }
 
     private static void walkAndBreak(BlockPos pos) {

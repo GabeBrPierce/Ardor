@@ -11,7 +11,7 @@ import com.ardor.script.ScriptWheelEntry;
  * -- register() does this for all of them once at mod init; reregister(name) re-applies just one,
  * called by ScriptEventEditScreen's Save so an edit takes effect immediately instead of needing a
  * restart. The predicate script is reloaded from ScriptStore on every poll (not cached), same
- * "always run whatever's currently saved" behavior ScriptKeybinds/MacroKeybinds already have.
+ * "always run whatever's currently saved" behavior DynamicKeybinds already has.
  */
 public final class ScriptEventBindings {
 

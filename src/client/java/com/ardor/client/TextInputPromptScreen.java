@@ -7,7 +7,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 import java.util.function.Consumer;
 
@@ -46,11 +46,11 @@ public final class TextInputPromptScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        if (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER) {
+        if (event.key() == InputConstants.KEY_RETURN || event.key() == InputConstants.KEY_NUMPADENTER) {
             submit();
             return true;
         }
-        if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.key() == InputConstants.KEY_ESCAPE) {
             cancel();
             return true;
         }
@@ -69,7 +69,7 @@ public final class TextInputPromptScreen extends Screen {
         if (resolved) return;
         resolved = true;
         onResult.accept(result);
-        Minecraft.getInstance().setScreen(null);
+        Minecraft.getInstance().gui.setScreen(null);
     }
 
     @Override

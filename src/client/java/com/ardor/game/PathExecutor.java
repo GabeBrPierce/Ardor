@@ -47,10 +47,10 @@ import java.util.List;
  *
  * Turning uses RotationUtil.smoothLookAt (capped at WALK_TURN_RATE
  * degrees/tick) instead of snapping straight to the target bearing every
- * tick -- since "forward" is relative to the player's current yaw, not
- * world space, a lagging yaw means actual movement traces a curve toward
- * the waypoint rather than a straight line, which reads as natural
- * (pursuit-curve) rather than as the bot cutting the corner short.
+ * tick. Movement itself is steered in world space (forward + strafe relative
+ * to the current yaw), so the lagging camera no longer bends the path --
+ * pressing forward-only made the bot overshoot corners and orbit the
+ * waypoint until the yaw caught up.
  *
 
  * Dig-through-obstacles: when the next waypoint requires clearing blocks
@@ -173,9 +173,23 @@ public final class PathExecutor {
 
         RotationUtil.smoothLookAt(player, target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5, WALK_TURN_RATE);
 
+        // Steer toward the waypoint in world space, decomposed into the camera's forward/left axes,
+        // instead of always pressing straight forward. Forward-only coupled movement to the eased
+        // yaw, so at corners the bot overshot the waypoint and orbited it until the yaw caught up.
+        double yawRad = Math.toRadians(player.getYRot());
+        double sin = Math.sin(yawRad), cos = Math.cos(yawRad);
+        // Snapped to the nearest of the 8 real WASD combos: an analog direction is impossible from a
+        // keyboard, and server anticheats that simulate input reject it and set the player back every
+        // tick (the analog version showed "walking but not moving" on a live server).
+        double rel = Math.atan2(dx * cos + dz * sin, -dx * sin + dz * cos); // angle of target off facing, left positive
+        double snapped = Math.round(rel / (Math.PI / 4)) * (Math.PI / 4);
+        int forward = (int) Math.round(Math.cos(snapped));
+        int left = (int) Math.round(Math.sin(snapped));
+        if (distXZ < 1e-3) forward = left = 0; // directly above/below the waypoint: no horizontal push
+
         boolean jump = dy > 0.5;
-        player.input.keyPresses = new Input(true, false, false, false, jump, false, true);
-        player.input.moveVector = new Vec2(0f, 1f); // (strafe, forward) -- straight forward, no strafing
+        player.input.keyPresses = new Input(forward > 0, forward < 0, left > 0, left < 0, jump, false, forward > 0);
+        player.input.moveVector = new Vec2(left, forward).normalized(); // (strafe, forward), normalized like KeyboardInput
     }
 
     /** Replaces the player's real (keyboard-driven) input with an inert one we fully control, saving it to restore later. */

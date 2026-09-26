@@ -10,6 +10,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -42,6 +43,7 @@ public final class FetchItemsScreen extends Screen {
     private static final int FOOTER_H = 40;
     private static final int ICON_SIZE = 16;
     private static final int TEXT_X = 10 + ICON_SIZE + 6; // room for the item icon at x=10
+    private static final int SCROLLBAR_X_MARGIN = 8; // distance from the right edge -- clear of the Fetch button column (ends at width-10)
 
     // Persist across reopen, same reasoning TaskPlannerScreen's own static fields document: a
     // fresh screen instance is constructed every keypress, instance fields would silently reset.
@@ -98,7 +100,7 @@ public final class FetchItemsScreen extends Screen {
 
         FlowLayout flow = new FlowLayout(350, 10, width - 75, 20, 4, 4);
         int[] pos = flow.next(100);
-        addRenderableWidget(Button.builder(Component.literal("Item Sources"), b -> Minecraft.getInstance().setScreen(new ItemSourcesScreen()))
+        addRenderableWidget(Button.builder(Component.literal("Item Sources"), b -> Minecraft.getInstance().gui.setScreen(new ItemSourcesScreen()))
                 .bounds(pos[0], pos[1], 100, 20).build());
         pos = flow.next(70);
         addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> { ContainerCache.scanAll(); rebuildAllWidgets(); })
@@ -160,6 +162,19 @@ public final class FetchItemsScreen extends Screen {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (maxScrollRows > 0) {
+            int newOffset = Scrollbar.clickedOffset(event.x(), event.y(), width - SCROLLBAR_X_MARGIN, listTop, rowsVisible * ROW_H, results.size(), rowsVisible);
+            if (newOffset >= 0) {
+                scrollOffsetRows = newOffset;
+                rebuildAllWidgets();
+                return true;
+            }
+        }
+        return super.mouseClicked(event, doubleClick);
     }
 
     private void onFetchClicked(CacheSearch.Group group) {
@@ -229,6 +244,7 @@ public final class FetchItemsScreen extends Screen {
         if (maxScrollRows > 0) {
             g.text(font, "scroll for more (" + (scrollOffsetRows + 1) + "-" + end + " of " + results.size() + ")",
                     10, listTop + rowsVisible * ROW_H + 4, 0xFF808080);
+            Scrollbar.render(g, width - SCROLLBAR_X_MARGIN, listTop, rowsVisible * ROW_H, results.size(), rowsVisible, scrollOffsetRows);
         }
 
         g.text(font, resultCountLine, 10, height - FOOTER_H + 8, 0xFFAAAAAA);

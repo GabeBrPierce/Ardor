@@ -27,6 +27,7 @@ final class LuaSignatures {
             Map.entry("queryItemOnGround", new FunctionDoc("queryItemOnGround(itemRegex, dist, pos)", "Searches for matching dropped item entities.")),
             Map.entry("queryItemInInventory", new FunctionDoc("queryItemInInventory(itemRegex, dist, pos)", "Searches the player's own inventory.")),
             Map.entry("queryEntity", new FunctionDoc("queryEntity(regex, dist, pos)", "Finds one nearby entity handle matching regex.")),
+            Map.entry("queryBlock", new FunctionDoc("queryBlock(regex, dist, pos)", "Finds the nearest block matching regex: {pos, block} or nil.")),
             Map.entry("swapItems", new FunctionDoc("swapItems(slotA, slotB)", "Real, server-synced inventory swap between two slots.")),
             Map.entry("putInHotbar", new FunctionDoc("putInHotbar(slot, hotbarSlot)", "Moves an item into a specific hotbar slot.")),
             Map.entry("getRegions", new FunctionDoc("getRegions(pos)", "Region names containing pos, innermost first.")),

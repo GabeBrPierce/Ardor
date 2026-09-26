@@ -14,7 +14,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
@@ -130,6 +130,13 @@ public final class ScriptEditScreen extends Screen {
         // that arrives via this listener without one of those having run first is handleTab's own
         // programmatic edit, not new input, and shouldn't cancel the cycle it's mid-way through.
         textField.setValueListener(v -> { source = v; recomputeDerived(v); });
+        // textField is driven directly (see class doc), not a GuiEventListener widget, so nothing
+        // ever calls the EditBox-style setFocused(true) that normally tells the platform to start
+        // delivering character/composition events (Minecraft.onTextInputFocusChange ->
+        // TextInputManager.startTextInput -> SDL_StartTextInput on this SDL-backed build) -- without
+        // it, keyPressed still fires (arrows/backspace/Tab are raw key events) but charTyped never
+        // does, since SDL withholds text-input events until a window explicitly opts in.
+        Minecraft.getInstance().onTextInputFocusChange(this, true);
 
         addRenderableWidget(Button.builder(Component.literal("Run"), b -> onRun())
                 .bounds(10, 10, 55, 20).build());
@@ -156,10 +163,10 @@ public final class ScriptEditScreen extends Screen {
     /** Saves before leaving for the docs -- Help navigates away from the editor same as Close would, so it shouldn't discard an unsaved edit to get there. */
     private void onHelp() {
         ScriptStore.save(scriptName, source);
-        Minecraft.getInstance().setScreen(new ScriptDocsScreen(this));
+        Minecraft.getInstance().gui.setScreen(new ScriptDocsScreen(this));
     }
 
-    /** Saves first (so ScriptStore/other call sites see exactly what just ran) then runs the live editor text directly, same error-reporting shape ScriptKeybinds/ScriptWheelKey already use. Screen stays open -- running is meant for iterating on a script, not a one-way trip. */
+    /** Saves first (so ScriptStore/other call sites see exactly what just ran) then runs the live editor text directly, same error-reporting shape DynamicKeybinds/ScriptWheelKey already use. Screen stays open -- running is meant for iterating on a script, not a one-way trip. */
     private void onRun() {
         ScriptStore.save(scriptName, source);
         if (debugEnabled) {
@@ -242,7 +249,7 @@ public final class ScriptEditScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        if (event.key() == GLFW.GLFW_KEY_TAB) {
+        if (event.key() == InputConstants.KEY_TAB) {
             handleTab();
             return true;
         }
@@ -401,7 +408,7 @@ public final class ScriptEditScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (!inEditorBounds(event.x(), event.y())) return super.mouseClicked(event, doubleClick);
-        if (event.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return super.mouseClicked(event, doubleClick);
+        if (event.button() != InputConstants.MOUSE_BUTTON_LEFT) return super.mouseClicked(event, doubleClick);
         resetCompletion();
         textField.setSelecting(false);
         seekToScreenPoint(event.x(), event.y());
@@ -412,7 +419,7 @@ public final class ScriptEditScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
-        if (event.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return super.mouseDragged(event, dragX, dragY);
+        if (event.button() != InputConstants.MOUSE_BUTTON_LEFT) return super.mouseDragged(event, dragX, dragY);
         textField.setSelecting(true);
         seekToScreenPoint(event.x(), event.y());
         scrollToCursor();

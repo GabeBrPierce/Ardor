@@ -42,20 +42,19 @@ public final class ArdorConfigScreen extends Screen {
         List<Row> rows = List.of(
                 // Grouped by what the rows actually relate to, not the order they were added in:
                 // scripting (write/run/bind/trigger/learn) together, then regions, then everything else.
-                new Row("Scripts", b -> Minecraft.getInstance().setScreen(new ScriptListScreen())),
-                new Row("Script Events", b -> Minecraft.getInstance().setScreen(new ScriptEventListScreen())),
-                new Row("Script Keybinds", b -> Minecraft.getInstance().setScreen(new ScriptKeybindScreen())),
-                new Row("Wheels", b -> Minecraft.getInstance().setScreen(new WheelListScreen())),
-                new Row("Lua Scripting Help", b -> Minecraft.getInstance().setScreen(new ScriptDocsScreen(this))),
-                new Row("Macros", b -> Minecraft.getInstance().setScreen(new MacroListScreen())),
-                new Row("Macro Keybinds", b -> Minecraft.getInstance().setScreen(new MacroKeybindScreen())),
-                new Row("Regions", b -> Minecraft.getInstance().setScreen(new RegionListScreen())),
-                new Row("Events", b -> Minecraft.getInstance().setScreen(new EventConfigScreen())),
-                new Row("Task Planner", b -> Minecraft.getInstance().setScreen(new TaskPlannerScreen())),
-                new Row("Fetch Items", b -> Minecraft.getInstance().setScreen(new FetchItemsScreen())),
-                new Row("Command Wheel", b -> Minecraft.getInstance().setScreen(new CommandWheelScreen())),
-                new Row("Resume Interrupted Work", b -> Minecraft.getInstance().setScreen(new ResumeWorkScreen(this))),
-                new Row("Settings", b -> Minecraft.getInstance().setScreen(ArdorSettingsScreen.create(this))),
+                new Row("Scripts", b -> Minecraft.getInstance().gui.setScreen(new ScriptListScreen())),
+                new Row("Script Events", b -> Minecraft.getInstance().gui.setScreen(new ScriptEventListScreen())),
+                new Row("Keybinds", b -> Minecraft.getInstance().gui.setScreen(new KeybindsScreen())),
+                new Row("Wheels", b -> Minecraft.getInstance().gui.setScreen(new WheelListScreen())),
+                new Row("Lua Scripting Help", b -> Minecraft.getInstance().gui.setScreen(new ScriptDocsScreen(this))),
+                new Row("Macros", b -> Minecraft.getInstance().gui.setScreen(new MacroListScreen())),
+                new Row("Regions", b -> Minecraft.getInstance().gui.setScreen(new RegionListScreen())),
+                new Row("Events", b -> Minecraft.getInstance().gui.setScreen(new EventConfigScreen())),
+                new Row("Task Planner", b -> Minecraft.getInstance().gui.setScreen(new TaskPlannerScreen())),
+                new Row("Companion UI", b -> CompanionLauncher.ensureRunningThenOpenUi()),
+                new Row("Fetch Items", b -> Minecraft.getInstance().gui.setScreen(new FetchItemsScreen())),
+                new Row("Resume Interrupted Work", b -> Minecraft.getInstance().gui.setScreen(new ResumeWorkScreen(this))),
+                new Row("Settings", b -> Minecraft.getInstance().gui.setScreen(ArdorSettingsScreen.create(this))),
                 new Row("Done", b -> onClose())
         );
 
@@ -80,7 +79,7 @@ public final class ArdorConfigScreen extends Screen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(parent);
+        Minecraft.getInstance().gui.setScreen(parent);
     }
 
     @Override

@@ -42,12 +42,13 @@ import java.util.function.Predicate;
  * Dispatches the non-pathfinding verbs (place, equip, attack, drop, use,
  * chat, craft, smelt) that PathfindingController doesn't handle.
  *
- * Inventory manipulation here (equip's slot swap, drop's slot removal,
- * craft/smelt's ingredient consumption) is done via direct client-side
- * Inventory calls, not the container-click packet protocol a real player
- * action sends. Likely fine in singleplayer (client and integrated server
- * share process); NOT verified to stay in sync with a real multiplayer
- * server. Flagged in TODO.md.
+ * Inventory manipulation here (equip's slot swap, craft/smelt's ingredient
+ * consumption) is done via direct client-side Inventory calls, not the
+ * container-click packet protocol a real player action sends. Likely fine in
+ * singleplayer (client and integrated server share process); NOT verified to
+ * stay in sync with a real multiplayer server. Flagged in TODO.md. drop is
+ * the exception -- it goes through LocalPlayer.drop(boolean), which sends a
+ * real ServerboundPlayerActionPacket (see handleDrop's own doc).
  *
  * craft/smelt additionally read recipes from the integrated server's
  * RecipeManager (Minecraft.getSingleplayerServer().getRecipeManager()) --
@@ -85,6 +86,9 @@ public final class GameActionController {
     private static volatile int waitTicksRemaining;
     private static boolean waitTickerRegistered = false;
 
+    private static volatile boolean dropping = false;
+    private static int dropRemaining;
+
     public static boolean handles(String verb) {
         return switch (verb) {
             case "place", "equip", "attack", "drop", "use", "chat", "command", "wait", "craft", "smelt" -> true;
@@ -92,9 +96,9 @@ public final class GameActionController {
         };
     }
 
-    /** True while an `attack until:dead` loop or a `wait` is still running. Every other verb here completes synchronously within dispatch(), so there's nothing else to track -- see TaskRunner. */
+    /** True while an `attack until:dead` loop, a `wait`, or a multi-drop `drop` is still running. Every other verb here completes synchronously within dispatch(), so there's nothing else to track -- see TaskRunner. */
     public static boolean isBusy() {
-        return attacking || waitTicksRemaining > 0;
+        return attacking || waitTicksRemaining > 0 || dropping;
     }
 
     public static void dispatch(JsonObject action) {
@@ -414,18 +418,53 @@ public final class GameActionController {
         }
     }
 
+    private static final int TICKS_BETWEEN_DROPS = 3; // server needs a tick to process each drop packet -- see ItemDropCycler's own doc for the same pacing
+
+    /**
+     * Player.drop(ItemStack, boolean) -- the shared method this used to call directly -- only spawns
+     * a local, unnetworked ItemEntity on the client; it never sends a packet, so the server's
+     * inventory never actually changes and the item reappears once the server's next sync overwrites
+     * the client-only removal. LocalPlayer.drop(boolean) is the real player-facing action: it removes
+     * from whatever's in the currently SELECTED hotbar slot and sends a real
+     * ServerboundPlayerActionPacket (confirmed via javap against this project's client jar). Since it
+     * only ever acts on the selected slot and only drops one item or the whole stack per call, this
+     * selects the target item first, then either drops the whole stack in one packet (dropping
+     * everything present) or loops single-item drops paced across ticks for a partial count.
+     */
     private static void handleDrop(JsonObject action) {
         JsonObject item = action.getAsJsonObject("item");
         boolean all = action.has("all") && action.get("all").getAsBoolean();
+        String itemId = item.get("id").getAsString();
+        Item target = resolveItem(itemId);
+
         LocalPlayer player = Minecraft.getInstance().player;
         Inventory inv = player.getInventory();
-        Item target = resolveItem(item.get("id").getAsString());
-        int count = all ? Integer.MAX_VALUE : (item.has("count") ? item.get("count").getAsInt() : 1);
-
         int slotIndex = inv.findSlotMatchingItem(new ItemStack(target));
-        if (slotIndex < 0) throw new IllegalStateException("drop: " + item.get("id").getAsString() + " not found in inventory");
-        ItemStack removed = inv.removeItem(slotIndex, count);
-        player.drop(removed, false);
+        if (slotIndex < 0) throw new IllegalStateException("drop: " + itemId + " not found in inventory");
+        int available = inv.getItem(slotIndex).getCount();
+        int count = Math.min(all ? available : (item.has("count") ? item.get("count").getAsInt() : 1), available);
+
+        selectItemInHand(itemId);
+
+        if (count >= available) {
+            Minecraft.getInstance().gameMode.dropItem(player, true);
+            return;
+        }
+
+        dropping = true;
+        dropRemaining = count;
+        dropStep();
+    }
+
+    private static void dropStep() {
+        if (dropRemaining <= 0) {
+            dropping = false;
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        mc.gameMode.dropItem(mc.player, false);
+        dropRemaining--;
+        TickPoll.after(TICKS_BETWEEN_DROPS, GameActionController::dropStep);
     }
 
     private static void handleUse(JsonObject action) {

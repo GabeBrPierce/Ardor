@@ -270,7 +270,7 @@ public final class RegionEditScreen extends Screen {
 
             if (renaming) {
                 // regionName is final; reopen fresh under the new name rather than patching it in place.
-                Minecraft.getInstance().setScreen(new RegionEditScreen(newName));
+                Minecraft.getInstance().gui.setScreen(new RegionEditScreen(newName));
             } else {
                 statusLine = "Saved.";
             }

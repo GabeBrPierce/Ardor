@@ -16,6 +16,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Prediction;
 
 /**
  * Phase 1 one-shot bridge commands (see the approved plan): block.place,
@@ -119,7 +120,7 @@ final class BridgeActionHandlers {
         boolean all = msg.has("all") && msg.get("all").getAsBoolean();
         int count = all ? Integer.MAX_VALUE : (msg.has("count") ? msg.get("count").getAsInt() : 1);
         ItemStack removed = player.getInventory().removeItem(slot, count);
-        if (!removed.isEmpty()) player.drop(removed, false);
+        if (!removed.isEmpty()) player.drop(removed, false, Prediction.PREDICTED);
     }
 
     static void chatSend(JsonObject msg) {

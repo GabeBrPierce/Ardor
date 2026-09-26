@@ -1,6 +1,7 @@
 package com.ardor.client;
 
 import com.ardor.game.BreakAreaController;
+import com.ardor.game.BuildAreaController;
 import com.ardor.game.KillAllController;
 import com.ardor.game.PathfindingController;
 import com.ardor.planner.TaskOrchestrator;
@@ -11,7 +12,12 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.FormattedCharSequence;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * "Where is the UI for the quests? It should ALWAYS display what is currently happening." Real
@@ -23,6 +29,9 @@ import net.minecraft.resources.Identifier;
  * of unattended, autonomous action the user was watching for status on.
  *
  * Now checks, in priority order, whichever of these is ACTUALLY driving the bot right now:
+ *   0. PlayerTaskBoard -- steps the PLAYER needs to physically perform (e.g. GuidedCalibration),
+ *      rendered as a real checklist. Takes priority over everything else: if Ardor needs the
+ *      player to do something, that's more urgent to surface than what Ardor itself is doing.
  *   1. TaskOrchestrator (a goal-driven Run/Auto-Run) -- Main Quest + current step + step progress.
  *   2. BreakAreaController (Break Blocks Within) -- real brokenCount/totalCount progress.
  *   3. KillAllController (Kill All / Kill Hostile Mobs) -- no countable total (open-ended re-scan
@@ -40,6 +49,7 @@ public final class QuestTrackerOverlay {
     private static final int BAR_W = 160;
     private static final int BAR_H = 6;
     private static final int PADDING = 4;
+    private static final int CHECKLIST_WRAP_WIDTH = 260;
 
     private QuestTrackerOverlay() {}
 
@@ -49,6 +59,11 @@ public final class QuestTrackerOverlay {
     }
 
     private static void render(GuiGraphicsExtractor g, DeltaTracker tracker) {
+        if (PlayerTaskBoard.isActive()) {
+            renderPlayerTaskBoard(g, Minecraft.getInstance().font);
+            return;
+        }
+
         String mainLine;
         String subLine = null;
         double barProgress = -1; // -1 = no bar for this line
@@ -66,6 +81,12 @@ public final class QuestTrackerOverlay {
             int broken = BreakAreaController.brokenCount();
             subLine = broken + " / " + total + " broken";
             if (total > 0) barProgress = (double) broken / total;
+        } else if (BuildAreaController.isActive()) {
+            mainLine = "Building blocks within area";
+            int total = BuildAreaController.totalCount();
+            int placed = BuildAreaController.placedCount();
+            subLine = placed + " / " + total + " placed";
+            if (total > 0) barProgress = (double) placed / total;
         } else if (KillAllController.isActive()) {
             mainLine = "Clearing hostile mobs";
         } else if (TaskRunner.shared().isActive()) {
@@ -105,6 +126,53 @@ public final class QuestTrackerOverlay {
         }
         if (showNavBar) {
             drawBar(g, textX, textY, navProgress, 0xFF5599FF);
+        }
+    }
+
+    /** [x] done, [>] current, [ ] pending -- plain ASCII glyphs, not decorative Unicode box-drawing (unconfirmed whether this font even renders those, see TODO.md's step-debugger caveat). Each step word-wraps independently since a real instruction sentence won't fit on one line. */
+    private static void renderPlayerTaskBoard(GuiGraphicsExtractor g, Font font) {
+        String title = PlayerTaskBoard.title();
+        List<PlayerTaskBoard.Step> steps = PlayerTaskBoard.steps();
+        int current = PlayerTaskBoard.currentIndex();
+        String detail = PlayerTaskBoard.detail();
+
+        List<List<FormattedCharSequence>> wrappedSteps = new ArrayList<>();
+        int maxWidth = font.width(title);
+        for (int i = 0; i < steps.size(); i++) {
+            String prefix = i < current ? "[x] " : i == current ? "[>] " : "[ ] ";
+            List<FormattedCharSequence> wrapped = font.split(Component.literal(prefix + steps.get(i).text()), CHECKLIST_WRAP_WIDTH);
+            wrappedSteps.add(wrapped);
+            for (FormattedCharSequence line : wrapped) maxWidth = Math.max(maxWidth, font.width(line));
+        }
+        List<FormattedCharSequence> wrappedDetail = detail != null
+                ? font.split(Component.literal("   " + detail), CHECKLIST_WRAP_WIDTH)
+                : List.of();
+        for (FormattedCharSequence line : wrappedDetail) maxWidth = Math.max(maxWidth, font.width(line));
+
+        int totalLines = 1;
+        for (List<FormattedCharSequence> wrapped : wrappedSteps) totalLines += wrapped.size();
+        totalLines += wrappedDetail.size();
+
+        int boxW = maxWidth + PADDING * 2;
+        int boxH = totalLines * LINE_H + PADDING * 2;
+        int x = LEFT_MARGIN;
+        int y = TOP_MARGIN;
+        g.fill(x, y, x + boxW, y + boxH, 0xC0101010);
+
+        int textX = x + PADDING;
+        int textY = y + PADDING;
+        g.text(font, title, textX, textY, 0xFFFFD700);
+        textY += LINE_H;
+        for (int i = 0; i < wrappedSteps.size(); i++) {
+            int color = i < current ? 0xFF55CC55 : i == current ? 0xFFFFFFFF : 0xFF808080;
+            for (FormattedCharSequence line : wrappedSteps.get(i)) {
+                g.text(font, line, textX, textY, color);
+                textY += LINE_H;
+            }
+        }
+        for (FormattedCharSequence line : wrappedDetail) {
+            g.text(font, line, textX, textY, 0xFFFFD700);
+            textY += LINE_H;
         }
     }
 

@@ -7,6 +7,8 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.awt.Desktop;
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.nio.file.Path;
 
@@ -17,14 +19,15 @@ import java.nio.file.Path;
  * This actually launches it (same "check if already up, launch if configured and not" shape
  * LlmServerManager already established for the local llama-server) before opening the browser.
  *
- * ArdorConfig.companionLauncherPath should point at the Gradle `application` plugin's generated
- * launcher script for Ardor-Companion (build/install/ardor-companion/bin/ardor-companion.bat on
- * Windows) -- blank by default, same "no sane machine-independent default" reasoning
- * llmServerExecutable already documents.
+ * Targets the bedrock-bot companion (its manager.js serves the web UI on 4243), not the retired
+ * Ardor-Companion daemon. ArdorConfig.companionLauncherPath should point at bedrock-bot's
+ * manager.js (run with `node`) or any .bat/.cmd wrapper around it -- blank by default, same
+ * "no sane machine-independent default" reasoning llmServerExecutable already documents.
  */
 public final class CompanionLauncher {
 
-    private static final String COMPANION_UI_URL = "http://127.0.0.1:24748/";
+    private static final String COMPANION_UI_URL = "http://127.0.0.1:4243/";
+    private static final int COMPANION_UI_PORT = 4243;
     private static final int STARTUP_WAIT_MS = 1500; // best-effort: give the daemon a moment to bind its web UI port before opening the browser
 
     private static Process companionProcess;
@@ -32,7 +35,7 @@ public final class CompanionLauncher {
     private CompanionLauncher() {}
 
     public static void ensureRunningThenOpenUi() {
-        if (BridgeServer.isCompanionConnected()) {
+        if (BridgeServer.isCompanionConnected() || uiPortOpen()) {
             openBrowser();
             return;
         }
@@ -54,7 +57,9 @@ public final class CompanionLauncher {
         }
 
         try {
-            ProcessBuilder pb = new ProcessBuilder(launcher.getAbsolutePath())
+            ProcessBuilder pb = (launcher.getName().endsWith(".js")
+                    ? new ProcessBuilder("node", launcher.getAbsolutePath())
+                    : new ProcessBuilder(launcher.getAbsolutePath()))
                     .directory(launcher.getParentFile())
                     .redirectErrorStream(true);
             Path logFile = FabricLoader.getInstance().getConfigDir().resolve("ardor-companion.log");
@@ -71,6 +76,16 @@ public final class CompanionLauncher {
             }, "ardor-companion-launch-wait").start();
         } catch (IOException e) {
             StatusIndicator.show("Failed to launch companion: " + e.getMessage());
+        }
+    }
+
+    // The manager can be up without having attached to this client's bridge yet (no Java instance added in its UI).
+    private static boolean uiPortOpen() {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress("127.0.0.1", COMPANION_UI_PORT), 200);
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 

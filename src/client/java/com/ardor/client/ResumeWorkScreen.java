@@ -47,7 +47,7 @@ public final class ResumeWorkScreen extends Screen {
             }).bounds(width - 150, y, 70, 18).build());
             addRenderableWidget(Button.builder(Component.literal("Discard"), b -> {
                 e.discard().run();
-                Minecraft.getInstance().setScreen(new ResumeWorkScreen(parent));
+                Minecraft.getInstance().gui.setScreen(new ResumeWorkScreen(parent));
             }).bounds(width - 75, y, 70, 18).build());
             y += 24;
         }
@@ -69,7 +69,7 @@ public final class ResumeWorkScreen extends Screen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(parent);
+        Minecraft.getInstance().gui.setScreen(parent);
     }
 
     @Override

@@ -357,8 +357,8 @@ final class BridgeQueries {
         Minecraft client = Minecraft.getInstance();
         JsonObject result = new JsonObject();
         result.addProperty("focused", client.isWindowActive());
-        result.addProperty("screenOpen", client.screen != null);
-        if (client.screen != null) result.addProperty("screenTitle", client.screen.getTitle().getString());
+        result.addProperty("screenOpen", client.gui.screen() != null);
+        if (client.gui.screen() != null) result.addProperty("screenTitle", client.gui.screen().getTitle().getString());
         return result;
     }
 

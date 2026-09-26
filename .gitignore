@@ -9,7 +9,7 @@ training/data/
 training/out_lora*/
 training/lib/
 training/llama_server/
-training/gguf_final/
+training/gguf_final*/
 unsloth_compiled_cache/
 
 # Stray extracted-jar/decompile artifacts at repo root, not part of the Gradle build

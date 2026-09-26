@@ -29,7 +29,7 @@ public final class StatusIndicator {
     public static void show(String text) {
         System.out.println("[ardor] status: " + text);
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) mc.gui.getChat().addClientSystemMessage(Component.literal("[Ardor] " + text));
+        if (mc.player != null) mc.gui.hud.getChat().addClientSystemMessage(Component.literal("[Ardor] " + text));
     }
 
     private static final Map<String, String> LAST_SHOWN = new ConcurrentHashMap<>();

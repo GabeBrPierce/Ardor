@@ -32,8 +32,11 @@ import java.util.List;
  * SETTLE_TICKS then polls isBusy() every tick until it goes false or
  * MAX_WAIT_TICKS elapses. Works cleanly for goto/mine (both go busy
  * synchronously within dispatch, or fail synchronously with nothing to wait
- * for) and for one-shot verbs (place/equip/attack-once/drop/use/chat/stop,
- * which never go busy at all -- the runner advances almost immediately).
+ * for) and for one-shot verbs (place/equip/attack-once/use/chat/stop, which
+ * never go busy at all -- the runner advances almost immediately). `drop` of
+ * a partial count also goes busy (paced single-item drops across ticks, see
+ * GameActionController.handleDrop) and is waited on the same as goto/mine;
+ * dropping a whole stack stays one-shot.
  * `follow` is deliberately NOT waited on in practice: it's open-ended by
  * design and never finishes on its own, and its busy flag doesn't even go
  * true until the tick after dispatch (PathfindingController.ensureFollowLoop's

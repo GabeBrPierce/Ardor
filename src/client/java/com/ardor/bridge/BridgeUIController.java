@@ -40,7 +40,7 @@ final class BridgeUIController {
     private BridgeUIController() {}
 
     static JsonObject listOptions() {
-        Screen screen = Minecraft.getInstance().screen;
+        Screen screen = Minecraft.getInstance().gui.screen();
         JsonObject result = new JsonObject();
         if (screen == null) {
             result.addProperty("open", false);
@@ -64,7 +64,7 @@ final class BridgeUIController {
 
     static void select(JsonObject msg) {
         int index = msg.get("index").getAsInt();
-        Screen screen = Minecraft.getInstance().screen;
+        Screen screen = Minecraft.getInstance().gui.screen();
         if (screen == null) throw new IllegalStateException("no screen open");
 
         List<AbstractWidget> widgets = clickableWidgets(screen);

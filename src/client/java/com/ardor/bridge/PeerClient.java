@@ -79,16 +79,40 @@ public final class PeerClient {
     public static void sendCommandAsync(String peerName, String asciiOrJsonCommand) {
         ArdorConfig.PeerEntry peer = findPeer(peerName);
         if (peer == null) return;
+        sendCommandAsync(peer.host, peer.port, asciiOrJsonCommand);
+    }
+
+    /**
+     * Same as sendCommandAsync(peerName, ...) but for a peer reached by raw host/port instead of a
+     * configured ArdorConfig.peers entry -- e.g. one PeerDiscovery found on the LAN that was never
+     * hand-added to the config. NOT part of the Lua-facing "fixed contract" the name-based methods
+     * above are -- added purely for the freecam orchestrator overlay, safe to change.
+     */
+    public static void sendCommandAsync(String host, int port, String asciiOrJsonCommand) {
         JsonObject req = new JsonObject();
         req.addProperty("op", "command");
         req.addProperty("text", asciiOrJsonCommand);
         EXECUTOR.submit(() -> {
             try {
-                doRequest(peer, req, 5.0);
+                doRequest(host, port, req, 5.0);
             } catch (IOException e) {
-                System.err.println("[ardor] peer command to " + peerName + " failed: " + e);
+                System.err.println("[ardor] peer command to " + host + ":" + port + " failed: " + e);
             }
         });
+    }
+
+    /** Host/port equivalent of requestNumber(peerName, ...) -- see sendCommandAsync(host, port, ...)'s own doc. */
+    public static Double requestNumber(String host, int port, String property, double timeoutSeconds) {
+        Future<JsonObject> future = EXECUTOR.submit(() -> doRequest(host, port, getRequest(property), timeoutSeconds));
+        try {
+            long millis = Math.max(1, (long) (timeoutSeconds * 1000));
+            JsonObject reply = future.get(millis, TimeUnit.MILLISECONDS);
+            if (!isOk(reply)) return null;
+            return reply.get("value").getAsDouble();
+        } catch (Exception e) {
+            future.cancel(true);
+            return null;
+        }
     }
 
     private static boolean isOk(JsonObject reply) {
@@ -124,9 +148,13 @@ public final class PeerClient {
     }
 
     private static JsonObject doRequest(ArdorConfig.PeerEntry peer, JsonObject requestBody, double timeoutSeconds) throws IOException {
+        return doRequest(peer.host, peer.port, requestBody, timeoutSeconds);
+    }
+
+    private static JsonObject doRequest(String host, int port, JsonObject requestBody, double timeoutSeconds) throws IOException {
         int timeoutMillis = Math.max(1, (int) (timeoutSeconds * 1000));
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(peer.host, peer.port), timeoutMillis);
+            socket.connect(new InetSocketAddress(host, port), timeoutMillis);
             socket.setSoTimeout(timeoutMillis);
             try (BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
                  BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {

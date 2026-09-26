@@ -41,8 +41,8 @@ public final class ScriptWheelKey {
     /** Opens any named wheel -- used by WheelListScreen's Show button and WheelManager.show(name). */
     public static void open(String wheelName) {
         Minecraft client = Minecraft.getInstance();
-        if (client.screen == null) {
-            client.setScreen(new ArdorWheelScreen(buildOptions(wheelName)));
+        if (client.gui.screen() == null) {
+            client.gui.setScreen(new ArdorWheelScreen(buildOptions(wheelName)));
         }
     }
 

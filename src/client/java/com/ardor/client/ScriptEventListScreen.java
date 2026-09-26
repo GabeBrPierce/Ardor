@@ -54,7 +54,7 @@ public final class ScriptEventListScreen extends Screen {
 
         int y = rowTop;
         for (String name : events) {
-            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new ScriptEventEditScreen(name)))
+            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().gui.setScreen(new ScriptEventEditScreen(name)))
                     .bounds(width - 130, y, 55, ROW_H - 2).build());
             addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
                 ScriptEventStore.delete(name);
@@ -68,7 +68,7 @@ public final class ScriptEventListScreen extends Screen {
         String name = nameBox.getValue().trim();
         if (name.isEmpty()) return;
         ScriptEventStore.save(new com.ardor.event.ScriptEventDef(name));
-        Minecraft.getInstance().setScreen(new ScriptEventEditScreen(name));
+        Minecraft.getInstance().gui.setScreen(new ScriptEventEditScreen(name));
     }
 
     @Override

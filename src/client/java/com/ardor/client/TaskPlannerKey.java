@@ -19,8 +19,8 @@ public final class TaskPlannerKey {
 
     private static void open() {
         Minecraft client = Minecraft.getInstance();
-        if (client.screen == null) {
-            client.setScreen(new TaskPlannerScreen());
+        if (client.gui.screen() == null) {
+            client.gui.setScreen(new TaskPlannerScreen());
         }
     }
 }

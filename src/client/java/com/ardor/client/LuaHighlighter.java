@@ -26,7 +26,7 @@ final class LuaHighlighter {
             "string", "table", "math", "os",
             "pause", "wait", "goto", "command", "chat", "say", "cooldown", "startCooldown", "cooldownRemaining",
             "ask", "home", "isKeyDown", "isKeyUp", "isInGame", "getMenu",
-            "queryItemInStorage", "queryItemOnGround", "queryItemInInventory", "queryEntity",
+            "queryItemInStorage", "queryItemOnGround", "queryItemInInventory", "queryEntity", "queryBlock",
             "swapItems", "putInHotbar", "getRegions", "kill", "killAll", "breakBlocksWithin",
             "commandLLM", "promptLLM", "echo", "console", "saveToLogs", "runScript", "runMacro",
             "PLAYER", "RegionManager", "ScriptManager", "MacroManager", "WheelManager", "EventManager", "ArdorUsers",

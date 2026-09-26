@@ -19,8 +19,8 @@ public final class FetchItemsKey {
 
     private static void open() {
         Minecraft client = Minecraft.getInstance();
-        if (client.screen == null) {
-            client.setScreen(new FetchItemsScreen());
+        if (client.gui.screen() == null) {
+            client.gui.setScreen(new FetchItemsScreen());
         }
     }
 }

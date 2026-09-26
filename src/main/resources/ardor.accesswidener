@@ -18,18 +18,19 @@ accessible method net/minecraft/client/Minecraft pickBlockOrEntity ()V
 # when a player backs out of a container GUI normally.
 accessible method net/minecraft/world/entity/player/Player closeContainer ()V
 
-# Gui's action-bar and title/subtitle state is private with public SETTERS only (setOverlayMessage,
+# Hud's action-bar and title/subtitle state is private with public SETTERS only (setOverlayMessage,
 # setTitle, setSubtitle) and no getters at all -- HudManager needs to READ what's currently showing
 # (for the Lua HudManager.actionBar()/.title() queries), which is pure visibility, not new behavior,
 # so it's widened here rather than given a Mixin @Accessor interface. The *Time fields are the
 # countdowns: <= 0 means nothing is on screen right now, so the text field alone isn't enough.
-accessible field net/minecraft/client/gui/Gui overlayMessageString Lnet/minecraft/network/chat/Component;
-accessible field net/minecraft/client/gui/Gui overlayMessageTime I
-accessible field net/minecraft/client/gui/Gui title Lnet/minecraft/network/chat/Component;
-accessible field net/minecraft/client/gui/Gui subtitle Lnet/minecraft/network/chat/Component;
-accessible field net/minecraft/client/gui/Gui titleTime I
+# (This state lived on Gui itself before MC 26.3 split it out into the new Gui.hud field.)
+accessible field net/minecraft/client/gui/Hud overlayMessageString Lnet/minecraft/network/chat/Component;
+accessible field net/minecraft/client/gui/Hud overlayMessageTime I
+accessible field net/minecraft/client/gui/Hud title Lnet/minecraft/network/chat/Component;
+accessible field net/minecraft/client/gui/Hud subtitle Lnet/minecraft/network/chat/Component;
+accessible field net/minecraft/client/gui/Hud titleTime I
 
 # BossHealthOverlay.events (UUID -> LerpingBossEvent) is the live set of boss bars; the class itself
-# and its getter (Gui.getBossOverlay()) are already public, as is everything HudManager reads off
+# and its getter (Hud.getBossOverlay()) are already public, as is everything HudManager reads off
 # each event (BossEvent.getName/getProgress/getColor) -- only the map is private.
 accessible field net/minecraft/client/gui/components/BossHealthOverlay events Ljava/util/Map;

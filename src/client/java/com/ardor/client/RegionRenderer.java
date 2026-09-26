@@ -2,11 +2,10 @@ package com.ardor.client;
 
 import com.ardor.region.Region;
 import com.ardor.region.RegionManager;
-import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.ShapeRenderer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.AABB;
@@ -24,12 +23,12 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * purely reads RegionManager/SingleSelectionMode/AreaSelectionMode's existing state, matching the
  * original plan's "region wireframe rendering... draws whatever box list it's told to" description.
  *
- * LevelRenderEvents (not the older WorldRenderEvents, which no longer exists in this Fabric API
- * version -- confirmed via jar inspection, this MC version restructured level rendering into a
- * separate extraction/render-state-object pipeline) gives poseStack()/bufferSource() during
- * AFTER_TRANSLUCENT_TERRAIN, the same immediate-mode entry point vanilla's own block-outline
- * rendering uses. ShapeRenderer.renderShape's x/y/z params are the camera-relative offset to
- * translate an already-world-space VoxelShape by, not a poseStack push.
+ * MC 26.3 replaced the old immediate-mode bufferSource()/VertexConsumer path with a submit-node
+ * pipeline (confirmed via javap against LevelRenderer's own block-outline code, which is now
+ * private void submitHitOutline(...)): push the PoseStack, translate by -camera (world -> camera
+ * relative, same math the old ShapeRenderer.renderShape offset params did internally), then hand
+ * the still-world-space VoxelShape to SubmitNodeCollector.submitShapeOutline. No more manual
+ * VertexConsumer/endBatch -- the collector batches internally.
  */
 public final class RegionRenderer {
 
@@ -48,34 +47,32 @@ public final class RegionRenderer {
     }
 
     private static void renderInner(LevelRenderContext context) {
-        Vec3 cam = context.gameRenderer().getMainCamera().position();
-        MultiBufferSource.BufferSource buffers = context.bufferSource();
-        VertexConsumer lines = buffers.getBuffer(RenderTypes.lines());
+        Vec3 cam = context.gameRenderer().mainCamera().position();
+        PoseStack poseStack = context.poseStack();
+        SubmitNodeCollector collector = context.submitNodeCollector();
 
         for (Region region : RegionManager.get().currentProfile().regions.values()) {
             if (region.isGlobal()) continue;
             AABB box = AABB.encapsulatingFullBlocks(
                     new BlockPos(region.minX, region.minY, region.minZ),
                     new BlockPos(region.maxX, region.maxY, region.maxZ));
-            drawBox(context, lines, box, cam, regionColor(region.name));
+            drawBox(poseStack, collector, box, cam, regionColor(region.name));
         }
 
         if (SingleSelectionMode.isActive()) {
             AABB highlight = SingleSelectionMode.currentHighlightBox();
             if (highlight != null) {
-                drawBox(context, lines, highlight, cam, 0xFF00FFFF);
+                drawBox(poseStack, collector, highlight, cam, 0xFF00FFFF);
             } else {
                 Vec3 point = SingleSelectionMode.currentHologramPoint();
-                if (point != null) drawBox(context, lines, hologramBox(point), cam, 0xFF00FFFF);
+                if (point != null) drawBox(poseStack, collector, hologramBox(point), cam, 0xFF00FFFF);
             }
         }
 
         if (AreaSelectionMode.isActive()) {
             AABB preview = AreaSelectionMode.currentPreviewBox();
-            if (preview != null) drawBox(context, lines, preview, cam, 0xFFFFAA00);
+            if (preview != null) drawBox(poseStack, collector, preview, cam, 0xFFFFAA00);
         }
-
-        buffers.endBatch(RenderTypes.lines());
     }
 
     private static AABB hologramBox(Vec3 point) {
@@ -83,9 +80,12 @@ public final class RegionRenderer {
         return new AABB(point.x - half, point.y - half, point.z - half, point.x + half, point.y + half, point.z + half);
     }
 
-    private static void drawBox(LevelRenderContext context, VertexConsumer lines, AABB box, Vec3 cam, int argb) {
+    private static void drawBox(PoseStack poseStack, SubmitNodeCollector collector, AABB box, Vec3 cam, int argb) {
         VoxelShape shape = Shapes.create(box);
-        ShapeRenderer.renderShape(context.poseStack(), lines, shape, -cam.x, -cam.y, -cam.z, argb, 1.0f);
+        poseStack.pushPose();
+        poseStack.translate(-cam.x, -cam.y, -cam.z);
+        collector.submitShapeOutline(poseStack, shape, RenderTypes.lines(), argb, 1.0f, false);
+        poseStack.popPose();
     }
 
     /** Stable per-name color so the same region always looks the same across frames/sessions. */

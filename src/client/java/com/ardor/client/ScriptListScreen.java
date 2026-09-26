@@ -44,7 +44,7 @@ public final class ScriptListScreen extends Screen {
         FlowLayout flow = new FlowLayout(320, 10, width - 130, 20, 4, 4);
         int[] pos = flow.next(90);
         addRenderableWidget(Button.builder(Component.literal("New"), b -> onNew()).bounds(pos[0], pos[1], 90, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("Help"), b -> Minecraft.getInstance().setScreen(new ScriptDocsScreen(this)))
+        addRenderableWidget(Button.builder(Component.literal("Help"), b -> Minecraft.getInstance().gui.setScreen(new ScriptDocsScreen(this)))
                 .bounds(width - 120, 10, 55, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(width - 65, 10, 55, 20).build());
@@ -54,7 +54,7 @@ public final class ScriptListScreen extends Screen {
 
         int y = rowTop;
         for (String name : scripts) {
-            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().setScreen(new ScriptEditScreen(name)))
+            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> Minecraft.getInstance().gui.setScreen(new ScriptEditScreen(name)))
                     .bounds(width - 130, y, 55, ROW_H - 2).build());
             addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
                 ScriptStore.delete(name);
@@ -68,7 +68,7 @@ public final class ScriptListScreen extends Screen {
         String name = nameBox.getValue().trim();
         if (name.isEmpty()) return;
         ScriptStore.save(name, "");
-        Minecraft.getInstance().setScreen(new ScriptEditScreen(name));
+        Minecraft.getInstance().gui.setScreen(new ScriptEditScreen(name));
     }
 
     @Override

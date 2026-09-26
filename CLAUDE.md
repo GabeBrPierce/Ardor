@@ -23,5 +23,6 @@ Formatting:
 
 ## Project maintenance
 - Keep TODO.md current: add an entry whenever a feature is stubbed, deferred, or a known bug is left unfixed. Remove entries once resolved.
+- Companion app parity: `bedrock-bot/` is a live companion to the Ardor mod, not a side project. Whenever a menu, screen, setting, or control is added anywhere reachable from Ardor's own in-game menu (`ArdorConfigScreen`), the companion app must be updated in the same change: either it already works for free through the generic `ui.list`/`ui.select` menu-mirror tab (`bedrock-bot/public/app.js`'s `startMenuMirror`), or the change needs a new companion tab/control, or -- if neither is feasible yet -- add an explicit TODO.md entry describing the gap. Never let the companion's tab list silently drift out of parity with the mod's real menu.
 
 User instructions always override this file.
